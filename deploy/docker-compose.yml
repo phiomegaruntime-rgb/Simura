@@ -1,0 +1,139 @@
+# CellTwin Component 2 stack: broker + time-series DB + twin core + a simulated asset.
+# From the repo root:   docker compose -f deploy/docker-compose.yml up --build
+# Then open http://localhost:8000/docs
+
+services:
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    environment:
+      POSTGRES_USER: celltwin
+      POSTGRES_PASSWORD: celltwin
+      POSTGRES_DB: celltwin
+    ports:
+      - "5432:5432"
+    volumes:
+      - timescale_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U celltwin"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+
+  twincore:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    command: uvicorn celltwin.twincore.main:app --host 0.0.0.0 --port 8000
+    environment:
+      CELLTWIN_MQTT_HOST: mosquitto
+      CELLTWIN_MQTT_PORT: "1883"
+      CELLTWIN_DATABASE_URL: postgresql://celltwin:celltwin@timescaledb:5432/celltwin
+      # Optional API key: set CELLTWIN_API_KEY in your shell to secure the API +
+      # WebSocket (empty by default = auth off). nginx injects the same key so the
+      # dashboard keeps working; direct access to :8000 then requires the key.
+      CELLTWIN_API_KEY: ${CELLTWIN_API_KEY:-}
+    ports:
+      - "8000:8000"
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      mosquitto:
+        condition: service_started
+
+  publisher:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    command: python -m celltwin.publisher --scenario fault --speed 10 --loop
+    environment:
+      CELLTWIN_MQTT_HOST: mosquitto
+      CELLTWIN_MQTT_PORT: "1883"
+      CELLTWIN_SYSTEM_ID: bess-01
+    depends_on:
+      mosquitto:
+        condition: service_started
+      twincore:
+        condition: service_started
+
+  # A second, healthy pack so the fleet view (Component 7) shows a real mix:
+  # bess-01 faulted, bess-02 healthy, bess-modbus-01 from Modbus.
+  publisher-02:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    command: python -m celltwin.publisher --scenario healthy --speed 10 --loop
+    environment:
+      CELLTWIN_MQTT_HOST: mosquitto
+      CELLTWIN_MQTT_PORT: "1883"
+      CELLTWIN_SYSTEM_ID: bess-02
+    depends_on:
+      mosquitto:
+        condition: service_started
+      twincore:
+        condition: service_started
+
+  # Analytics: anomaly detection (Component 4) + assessment (Component 5).
+  analytics:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    command: python -m celltwin.detect
+    environment:
+      CELLTWIN_MQTT_HOST: mosquitto
+      CELLTWIN_MQTT_PORT: "1883"
+    depends_on:
+      mosquitto:
+        condition: service_started
+      twincore:
+        condition: service_started
+
+  # A simulated BMS speaking Modbus TCP (stands in for real hardware).
+  device-sim:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    command: python -m celltwin.connect.devsim --protocol modbus --host 0.0.0.0 --port 5020 --scenario fault --speed 10
+
+  # Reads the Modbus device and publishes the same telemetry envelope as the
+  # simulator -> the twin ingests it as system 'bess-modbus-01'.
+  modbus-connector:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    command: python -m celltwin.connect --config examples/connectors/modbus.yaml
+    environment:
+      CELLTWIN_MQTT_HOST: mosquitto
+      CELLTWIN_MQTT_PORT: "1883"
+      CELLTWIN_DEVICE_HOST: device-sim
+    depends_on:
+      mosquitto:
+        condition: service_started
+      twincore:
+        condition: service_started
+      device-sim:
+        condition: service_started
+
+  dashboard:
+    build:
+      context: ../dashboard
+      dockerfile: Dockerfile
+    environment:
+      # Same key as the twin core; nginx injects it on the /api and /ws upstream
+      # hop so the browser never handles it. Empty = auth off.
+      CELLTWIN_API_KEY: ${CELLTWIN_API_KEY:-}
+    ports:
+      - "8080:80"
+    depends_on:
+      twincore:
+        condition: service_started
+
+volumes:
+  timescale_data:

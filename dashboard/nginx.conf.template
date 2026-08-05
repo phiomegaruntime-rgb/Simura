@@ -1,0 +1,46 @@
+# nginx serves the SPA and proxies API + WebSocket to the twin core, so the
+# browser sees a single origin. When the twin core has an API key configured
+# (CELLTWIN_API_KEY), nginx injects it on the upstream hop for /api and /ws --
+# the trusted dashboard origin holds the key so the browser never needs it.
+#
+# This file is a template: the nginx image runs `envsubst` at startup, expanding
+# ${CELLTWIN_API_KEY} (and only CELLTWIN_* vars -- see NGINX_ENVSUBST_FILTER) and
+# writing the result to /etc/nginx/conf.d/default.conf. nginx's own $host/$uri/
+# $http_upgrade are left untouched.
+server {
+    listen 80;
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Static assets + SPA fallback.
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # REST API -> twin core. Inject the API key (empty when auth is disabled,
+    # which the twin core treats as "no key required").
+    location /api/ {
+        proxy_pass http://twincore:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-API-Key "${CELLTWIN_API_KEY}";
+        # Dataset uploads (/api/validation/upload) can be a few MB; the twin core
+        # enforces its own CELLTWIN_VALIDATION_MAX_UPLOAD_MB cap.
+        client_max_body_size 30m;
+    }
+    location /health {
+        proxy_pass http://twincore:8000;
+    }
+
+    # WebSocket live stream -> twin core (needs upgrade headers). The injected
+    # header rides the proxied handshake, so the WS is authorized too.
+    location /ws/ {
+        proxy_pass http://twincore:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-API-Key "${CELLTWIN_API_KEY}";
+        proxy_read_timeout 3600s;
+    }
+}

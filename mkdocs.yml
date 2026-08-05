@@ -1,0 +1,61 @@
+site_name: CellTwin
+site_description: An open, physics-based digital twin for battery energy storage systems (BESS). A Simura product.
+copyright: "&copy; 2026 Simura &middot; CellTwin is open source under Apache-2.0"
+# TODO: point these at the real repository once it's published.
+repo_url: https://github.com/celltwin/celltwin
+repo_name: celltwin/celltwin
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.instant
+    - content.code.copy
+    - toc.follow
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.inlinehilite
+  - pymdownx.details
+
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+  - Concepts:
+      - Architecture: architecture.md
+      - Simulator: simulator.md
+      - Analytics: analytics.md
+  - Operating the twin:
+      - Twin core & API: twin-api.md
+      - Hardware connectors: connectors.md
+      - Validation: validation.md
+      - System builder: builder.md
+      - Dashboard: dashboard.md
+  - Project:
+      - Roadmap: roadmap.md
+      - Contributing: contributing.md
+      - Terms: terms.md
+      - Privacy: privacy.md

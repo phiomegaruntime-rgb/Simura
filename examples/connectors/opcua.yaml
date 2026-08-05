@@ -1,0 +1,27 @@
+# Connect an OPC-UA BMS to CellTwin.
+#   python -m celltwin.connect --config examples/connectors/opcua.yaml
+# Device sim:  python -m celltwin.connect.devsim --protocol opcua --port 4840
+
+protocol: opcua
+system_id: bess-opcua-01
+name: "Rack C - OPC-UA BMS"
+
+mqtt:
+  host: localhost
+  port: 1883
+
+mapping:
+  series: 12
+  parallel: 2
+  soc_mode: pack
+  temp_mode: per_series
+  # OPC-UA server exposes SI floats directly, so scales are 1.0 (the defaults).
+
+source:
+  url: "opc.tcp://localhost:4840/celltwin/"
+  cell_voltage_node: "ns=2;s=CellVoltages"
+  cell_temp_node: "ns=2;s=CellTemps"
+  pack_current_node: "ns=2;s=PackCurrent"
+  pack_soc_node: "ns=2;s=PackSoC"
+
+poll_interval_s: 1.0

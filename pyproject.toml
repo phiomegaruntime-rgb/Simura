@@ -1,0 +1,49 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "celltwin"
+version = "0.10.0"
+description = "An open, physics-based digital twin for battery energy storage systems (BESS)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+authors = [{ name = "CellTwin contributors" }]
+keywords = ["digital-twin", "battery", "bess", "energy-storage", "simulation", "predictive-maintenance"]
+dependencies = [
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+examples = ["matplotlib>=3.7"]
+dev = ["pytest>=7.4"]
+server = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "asyncpg>=0.29",
+    "aiomqtt>=2.0",
+    "pydantic-settings>=2.0",
+    "python-multipart>=0.0.9",   # dataset file upload (/api/validation/upload)
+]
+connect = [
+    "aiomqtt>=2.0",
+    "pymodbus>=3.6,<3.8",
+    "asyncua>=1.0",
+    "pyyaml>=6.0",
+]
+docs = [
+    "mkdocs-material>=9.5",
+]
+validate = [
+    "scipy>=1.10",   # only needed to read MATLAB (.mat) datasets (NASA, Oxford)
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/celltwin"]
+# Bundled synthetic validation sample must ship in the wheel.
+artifacts = ["src/celltwin/validate/data/*.csv"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

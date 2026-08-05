@@ -1,0 +1,29 @@
+# Bridge a BMS that already publishes MQTT in its own JSON schema.
+#   python -m celltwin.connect --config examples/connectors/mqtt.yaml
+#
+# Example foreign payload on topic "plant/rackA/bms":
+#   {"bms": {"current": 20.0, "soc": 78.5,
+#            "cells": {"v": [3.9, ...], "t": [31.2, ...]}}}
+
+protocol: mqtt
+system_id: bess-mqtt-01
+name: "Rack A - MQTT BMS"
+
+mqtt:
+  host: localhost
+  port: 1883
+
+mapping:
+  series: 12
+  parallel: 2
+  soc_mode: pack
+  temp_mode: per_series
+  soc_scale: 0.01         # foreign SoC is a percentage (78.5 -> 0.785)
+
+# Foreign topic + dotted paths into its payload.
+source:
+  topic: "plant/rackA/bms"
+  pack_current_path: "bms.current"
+  pack_soc_path: "bms.soc"
+  cell_voltage_path: "bms.cells.v"
+  cell_temp_path: "bms.cells.t"

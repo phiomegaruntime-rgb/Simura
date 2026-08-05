@@ -1,0 +1,37 @@
+# Connect a Modbus TCP BMS to CellTwin.
+#   python -m celltwin.connect --config examples/connectors/modbus.yaml
+# Point it at a device sim first (another terminal):
+#   python -m celltwin.connect.devsim --protocol modbus --port 5020
+
+protocol: modbus
+system_id: bess-modbus-01
+name: "Rack B - Modbus BMS"
+
+mqtt:
+  host: localhost
+  port: 1883
+
+# Topology + how to turn raw registers into SI telemetry.
+mapping:
+  series: 12
+  parallel: 2
+  soc_mode: pack          # BMS reports pack SoC; broadcast it to cells
+  temp_mode: per_series   # one temperature sensor per module
+  voltage_scale: 0.001    # registers are millivolts
+  temp_scale: 0.1         # registers are deci-degrees C
+  current_scale: 0.1      # registers are deci-amps
+  soc_scale: 0.001        # register is SoC x1000
+
+# Where each signal lives in the register map.
+source:
+  host: localhost
+  port: 5020
+  register_type: holding
+  pack_current_reg: 0
+  pack_soc_reg: 1
+  cell_voltage_start: 100
+  cell_voltage_count: 24
+  cell_temp_start: 200
+  cell_temp_count: 12
+
+poll_interval_s: 1.0
