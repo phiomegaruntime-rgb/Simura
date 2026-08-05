@@ -1,4 +1,4 @@
-# CellTwin
+# CellTwin by Simura
 
 **An open, physics-based digital twin for battery energy storage systems (BESS).**
 
