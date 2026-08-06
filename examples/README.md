@@ -13,6 +13,7 @@ so you don't even need to `pip install` first.
 | [`ocv_chemistry.py`](ocv_chemistry.py) | Swap the **cell chemistry** by replacing the OCV–SoC curve (NMC vs LFP), and why LFP's flat plateau makes voltage-only SoC estimation hard. |
 | [`validate_demo.py`](validate_demo.py) | **Validate the model against battery data** — replays a sample's measured current through CellTwin's cell model and reports voltage error (nominal vs best-fit R0). Runs offline on a bundled *synthetic* sample; `python -m celltwin.validate --list` shows the real open datasets (NASA, Oxford, …). |
 | [`build_system.py`](build_system.py) | **Design your own system** — build a custom LFP pack with an injected fault as a `SystemSpec`, preview it offline (SoC/temp/energy/safety), write the spec to JSON, and print the `python -m celltwin.publisher --spec …` go-live command. |
+| [`weather_demo.py`](weather_demo.py) | **Weather coupling** — drive a pack's ambient temperature, wind cooling and solar heat from a weather source; shows a resting pack tracking a diurnal ambient and a builder preview under synthetic weather. Fully offline; `python -m celltwin.weather --synthetic` samples the model directly. |
 | [`connectors/`](connectors/) | Config files for the real-hardware connectors (Modbus / OPC-UA / MQTT). See [connectors/README.md](connectors/README.md). |
 
 ```bash
@@ -22,6 +23,7 @@ python examples/custom_profile.py
 python examples/ocv_chemistry.py
 python examples/validate_demo.py
 python examples/build_system.py
+python examples/weather_demo.py
 ```
 
 These double as the friendliest **good first areas** for contributors: a new

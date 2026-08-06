@@ -36,6 +36,9 @@ class PackTelemetry:
     max_cell_voltage_v: float
     voltage_imbalance_v: float          # max - min cell voltage (balance health)
     cells: list[CellTelemetry] = field(default_factory=list)
+    # Environmental conditions that produced this frame (None if no weather
+    # source is attached). Kept as a plain dict so it round-trips over MQTT/JSON.
+    weather: dict | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -48,11 +51,13 @@ class PackTelemetry:
         return cls(cells=cells, **{k: v for k, v in d.items() if k in names})
 
 
-def snapshot(pack, t: float, pack_current_a: float) -> PackTelemetry:
+def snapshot(pack, t: float, pack_current_a: float, weather=None) -> PackTelemetry:
     """Build a :class:`PackTelemetry` from the pack's current state.
 
     Applies any stashed sensor biases from the last fault step so reported
     voltage/temperature reflect what a (possibly faulty) sensor would report.
+    ``weather`` is an optional :class:`~celltwin.weather.sample.WeatherSample`
+    describing the conditions this frame ran under.
     """
     v_bias = getattr(pack, "_voltage_bias", np.zeros(pack.shape))
     t_bias = getattr(pack, "_temp_bias", np.zeros(pack.shape))
@@ -85,4 +90,5 @@ def snapshot(pack, t: float, pack_current_a: float) -> PackTelemetry:
         max_cell_voltage_v=round(float(measured_v.max()), 4),
         voltage_imbalance_v=round(float(measured_v.max() - measured_v.min()), 4),
         cells=cells,
+        weather=weather.to_dict() if weather is not None else None,
     )

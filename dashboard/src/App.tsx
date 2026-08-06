@@ -163,6 +163,27 @@ export default function App() {
               />
             </div>
 
+            {tel.weather && (
+              <div className="rounded-lg bg-surface border border-hairline px-4 py-2.5 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
+                <span className="text-xs uppercase tracking-wide text-muted">Weather</span>
+                <span className="text-ink-secondary">
+                  Ambient <span className="text-ink tnums">{tel.weather.air_temp_c.toFixed(1)} °C</span>
+                </span>
+                <span className="text-ink-secondary">
+                  Wind <span className="text-ink tnums">{tel.weather.wind_speed_ms.toFixed(1)} m/s</span>
+                </span>
+                <span className="text-ink-secondary">
+                  Solar <span className="text-ink tnums">{tel.weather.solar_w_m2.toFixed(0)} W/m²</span>
+                </span>
+                {tel.weather.humidity_frac != null && (
+                  <span className="text-ink-secondary">
+                    Humidity <span className="text-ink tnums">{(tel.weather.humidity_frac * 100).toFixed(0)} %</span>
+                  </span>
+                )}
+                <span className="text-xs text-muted ml-auto">source: {tel.weather.source}</span>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <div className="lg:col-span-2">
                 <CellHeatmap

@@ -15,6 +15,7 @@ from ..sim import (
     ConstantCurrent,
     ConstantPower,
     CoolingFault,
+    EnvironmentCoupling,
     Fault,
     InternalShort,
     LoadProfile,
@@ -28,7 +29,17 @@ from ..sim import (
     ocv_table_for,
     sinusoidal,
 )
-from .spec import FaultSpec, ProfileSpec, SystemSpec
+from ..weather import SyntheticProvider, build_provider
+from .spec import FaultSpec, ProfileSpec, SystemSpec, WeatherSpec
+
+# Coupling-coefficient keys a WeatherSpec may override (all optional).
+COUPLING_KEYS = (
+    "wind_cooling_gain",
+    "max_cooling_mult",
+    "solar_absorptivity",
+    "exposed_area_m2_per_cell",
+    "shading_frac",
+)
 
 # Registries used both to build objects and to describe the options to the UI.
 PROFILE_TYPES = ("constant_current", "constant_power", "cycle", "sinusoidal")
@@ -132,17 +143,55 @@ def build_faults(spec: SystemSpec) -> list[Fault]:
     return [build_fault(f) for f in spec.faults]
 
 
-def build_simulator(spec: SystemSpec) -> Simulator:
+def build_weather(spec: SystemSpec, *, offline: bool = False):
+    """Build the weather provider for a spec, or ``None`` for ``type="none"``.
+
+    Delegates to :func:`celltwin.weather.build_provider`, so weather stays a
+    declarative part of the spec and the physics core never imports a concrete
+    provider. When ``offline=True`` (the offline preview), a live ``open_meteo``
+    source is substituted with an equivalent :class:`SyntheticProvider` so the
+    preview never makes a network call and stays reproducible.
+    """
+    w = getattr(spec, "weather", None)
+    if w is None or w.type in (None, "", "none"):
+        return None
+    params = dict(w.params)
+    if offline and w.type == "open_meteo":
+        return SyntheticProvider(tz_offset_h=float(params.get("tz_offset_h", 0.0)))
+    provider_spec = {"type": w.type, **params}
+    return build_provider(provider_spec)
+
+
+def build_coupling(spec: SystemSpec) -> EnvironmentCoupling:
+    """Build the enclosure coupling, honouring any coefficient overrides in params."""
+    params = dict(getattr(spec.weather, "params", {}) or {})
+    overrides = {k: float(params[k]) for k in COUPLING_KEYS if k in params}
+    return EnvironmentCoupling(**overrides)
+
+
+def build_simulator(
+    spec: SystemSpec,
+    *,
+    weather_epoch0: float | None = None,
+    offline_weather: bool = False,
+) -> Simulator:
     """Construct a ready-to-run :class:`Simulator` for the spec.
 
     The pack's OCV curve is swapped to the spec's chemistry (NMC/LFP/LCO/NCA) and
     the reported cell voltage re-seeded, so a user's LFP system behaves like LFP.
+    If the spec carries a weather source it is attached, so the pack's ambient,
+    cooling, and solar heat load track real (or synthetic) conditions.
+    ``weather_epoch0`` pins the wall-clock instant sim-time t=0 maps to (used by
+    the offline preview for reproducibility); ``None`` means "now" at run time.
     """
     sim = Simulator(
         pack_config=build_pack_config(spec),
         sim_config=build_sim_config(spec),
         profile=build_profile(spec.profile),
         faults=build_faults(spec),
+        weather=build_weather(spec, offline=offline_weather),
+        coupling=build_coupling(spec),
+        weather_epoch0=weather_epoch0,
     )
     sim.pack.ocv = make_ocv(ocv_table_for(spec.chemistry))
     sim.pack.cell_voltage_v = sim.pack.ocv(sim.pack.soc).copy()

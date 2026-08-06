@@ -15,6 +15,7 @@ from celltwin.builder import (
     ProfileSpec,
     SpecError,
     SystemSpec,
+    WeatherSpec,
     build_simulator,
     builder_options,
     preview,
@@ -135,3 +136,53 @@ def test_every_profile_and_fault_type_builds_and_runs():
         assert validate_spec(s) == []
         r = preview(s)
         assert r.n_steps == 60
+
+
+# -- weather integration ---------------------------------------------------
+def test_weatherspec_roundtrips_through_dict():
+    s = SystemSpec(
+        weather=WeatherSpec("synthetic", {"mean_temp_c": 30.0, "tz_offset_h": 2.0})
+    )
+    back = SystemSpec.from_dict(s.to_dict())
+    assert back.weather.type == "synthetic"
+    assert back.weather.params["mean_temp_c"] == 30.0
+
+
+def test_spec_without_weather_defaults_to_none():
+    back = SystemSpec.from_dict({"name": "no weather"})
+    assert back.weather.type == "none"
+
+
+def test_preview_with_synthetic_weather_is_reproducible():
+    s = SystemSpec(
+        dt_s=5.0,
+        duration_s=4 * 3600.0,
+        profile=ProfileSpec("constant_current", {"amps": 0.0}),
+        weather=WeatherSpec("synthetic", {"mean_temp_c": 20.0, "temp_amplitude_c": 10.0}),
+    )
+    r1 = preview(s)
+    r2 = preview(s)
+    assert r1.weather_type == "synthetic"
+    assert r1.min_ambient_c is not None and r1.max_ambient_c > r1.min_ambient_c
+    assert "ambient" in r1.sparkline
+    assert r1.peak_temp_c == r2.peak_temp_c  # deterministic (pinned epoch)
+
+
+def test_open_meteo_spec_validates_coordinates():
+    ok = SystemSpec(weather=WeatherSpec("open_meteo", {"latitude": 52.5, "longitude": 13.4}))
+    assert validate_spec(ok) == []
+    bad = SystemSpec(weather=WeatherSpec("open_meteo", {"latitude": 999}))
+    errs = validate_spec(bad)
+    assert any("latitude" in e for e in errs)
+    assert any("longitude" in e for e in errs)
+
+
+def test_unknown_weather_type_is_rejected():
+    errs = validate_spec(SystemSpec(weather=WeatherSpec("tornado", {})))
+    assert any("weather" in e for e in errs)
+
+
+def test_builder_options_exposes_weather():
+    opts = builder_options()
+    assert "synthetic" in opts["weather_types"]
+    assert "open_meteo" in opts["weather_params"]

@@ -1,6 +1,7 @@
 """Physics simulator for the CellTwin battery digital twin."""
 
 from .config import CellParams, PackConfig, SimConfig
+from .environment import EnvironmentCoupling, EnvironmentEffect
 from .faults import (
     CoolingFault,
     Fault,
@@ -37,6 +38,8 @@ __all__ = [
     "SimConfig",
     "BatteryPack",
     "Simulator",
+    "EnvironmentCoupling",
+    "EnvironmentEffect",
     "Fault",
     "ResistanceGrowth",
     "InternalShort",

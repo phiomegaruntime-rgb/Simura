@@ -17,6 +17,11 @@ from .build import build_simulator
 from .spec import SystemSpec
 from .validate import validate_spec
 
+# Fixed reference instant (2024-01-01 12:00:00 UTC) that offline previews map
+# sim-time t=0 to, so a spec with a synthetic weather source previews
+# reproducibly instead of depending on the wall clock.
+PREVIEW_EPOCH0 = 1_704_110_400.0
+
 
 @dataclass
 class PreviewResult:
@@ -44,6 +49,12 @@ class PreviewResult:
     series_len: int
     parallel_len: int
 
+    # Weather summary (present only when a weather source is attached).
+    weather_type: str = "none"
+    min_ambient_c: float | None = None
+    max_ambient_c: float | None = None
+    max_solar_w_m2: float | None = None
+
     # Downsampled traces for sparklines (evenly-sampled by index).
     sparkline: dict[str, list[float]] = field(default_factory=dict)
 
@@ -69,13 +80,21 @@ def preview(spec: SystemSpec, *, max_points: int = 200) -> PreviewResult:
     if errors:
         raise SpecError(errors)
 
-    sim = build_simulator(spec)
+    # Offline + pinned epoch so a synthetic-weather preview never hits the
+    # network and is reproducible run-to-run.
+    sim = build_simulator(spec, weather_epoch0=PREVIEW_EPOCH0, offline_weather=True)
+    has_weather = sim.weather is not None
 
     ts: list[float] = []
     soc: list[float] = []
     temp: list[float] = []
     volt: list[float] = []
     power: list[float] = []
+    ambient: list[float] = []
+
+    min_ambient = 1e9
+    max_ambient = -1e9
+    max_solar = 0.0
 
     energy_wh = 0.0
     peak_temp = -1e9
@@ -104,6 +123,13 @@ def preview(spec: SystemSpec, *, max_points: int = 200) -> PreviewResult:
         if time_to_limit is None and frame.max_temp_c >= spec.temp_max_c:
             time_to_limit = frame.time_s
 
+        if frame.weather is not None:
+            a = float(frame.weather.get("air_temp_c", 0.0))
+            ambient.append(a)
+            min_ambient = min(min_ambient, a)
+            max_ambient = max(max_ambient, a)
+            max_solar = max(max_solar, float(frame.weather.get("solar_w_m2", 0.0)))
+
     if not ts:  # validate_spec guarantees >= 1 step, but be defensive
         raise SpecError(["spec produced no simulation steps"])
 
@@ -126,11 +152,28 @@ def preview(spec: SystemSpec, *, max_points: int = 200) -> PreviewResult:
         time_to_limit_s=time_to_limit,
         series_len=spec.series,
         parallel_len=spec.parallel,
+        weather_type=spec.weather.type if has_weather else "none",
+        min_ambient_c=min_ambient if has_weather else None,
+        max_ambient_c=max_ambient if has_weather else None,
+        max_solar_w_m2=max_solar if has_weather else None,
         sparkline=_downsample(
-            {"t": ts, "soc": soc, "max_temp": temp, "voltage": volt, "power": power},
+            _with_ambient(
+                {"t": ts, "soc": soc, "max_temp": temp, "voltage": volt, "power": power},
+                ambient,
+                has_weather,
+            ),
             max_points,
         ),
     )
+
+
+def _with_ambient(
+    series: dict[str, list[float]], ambient: list[float], has_weather: bool
+) -> dict[str, list[float]]:
+    """Attach the ambient-temperature trace only when weather is present."""
+    if has_weather and len(ambient) == len(series["t"]):
+        series = {**series, "ambient": ambient}
+    return series
 
 
 def _downsample(series: dict[str, list[float]], max_points: int) -> dict[str, list[float]]:

@@ -86,14 +86,25 @@ class BatteryPack:
         return i_cell
 
     # -- integrator -------------------------------------------------------
-    def step(self, pack_current_a: float, dt_s: float, effect: FaultEffect | None = None) -> None:
+    def step(
+        self,
+        pack_current_a: float,
+        dt_s: float,
+        effect: FaultEffect | None = None,
+        ambient_c: float | None = None,
+    ) -> None:
         """Advance the pack by ``dt_s`` seconds under the given pack current.
 
         ``pack_current_a`` > 0 discharges the pack. ``effect`` bundles any active
         fault contributions for this step (see :mod:`celltwin.sim.faults`).
+        ``ambient_c`` overrides the (otherwise fixed) ambient the pack cools
+        toward -- this is the hook a time-varying weather source drives (see
+        :mod:`celltwin.sim.environment`); ``None`` keeps the configured ambient.
         """
         if effect is None:
             effect = FaultEffect.zeros(self.shape)
+        if ambient_c is not None:
+            self.ambient_c = ambient_c
 
         r0 = self.r0_nom * effect.resistance_mult
         k_cool = self.k_cool_nom * effect.cooling_mult

@@ -40,6 +40,21 @@ PAUSED = "paused"
 STOPPED = "stopped"
 
 
+def _warm_weather(simulator) -> None:
+    """Trigger a weather provider's first (blocking) fetch, ignoring failures.
+
+    Run via ``asyncio.to_thread`` so the HTTP call stays off the event loop. A
+    failure here is non-fatal: the provider (wrapped in a CachedProvider) will
+    fall back to its offline model when the sim actually queries it.
+    """
+    import time
+
+    try:
+        simulator.weather.at(time.time())
+    except Exception:  # pragma: no cover - best-effort warm-up
+        log.warning("weather warm-up failed; will fall back at run time")
+
+
 class ManagedSim:
     """One twin-core-owned simulation and its run state."""
 
@@ -167,6 +182,11 @@ class SimManager:
             while True:
                 await self._publish(config_topic(system_id), json.dumps(config_payload), True)
                 simulator = build_simulator(spec)
+                # A live weather source fetches over HTTP on its first query; do
+                # that off the event loop so a managed sim never blocks the twin
+                # core. Later queries hit the provider's in-memory cache.
+                if simulator.weather is not None:
+                    await asyncio.to_thread(_warm_weather, simulator)
                 for tel in simulator.run():
                     await sim._gate.wait()  # blocks here while paused
                     envelope = {

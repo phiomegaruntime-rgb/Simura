@@ -53,6 +53,7 @@ nav:
       - Hardware connectors: connectors.md
       - Validation: validation.md
       - System builder: builder.md
+      - Weather: weather.md
       - Dashboard: dashboard.md
   - Project:
       - Roadmap: roadmap.md

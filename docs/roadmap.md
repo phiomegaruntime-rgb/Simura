@@ -257,3 +257,35 @@ bad spec, DELETE purge); pause/resume/delete confirmed live in the rebuilt stack
 ### Backlog
 - Opt-in resilience: auto-restart a sim if the broker blips (today a broker loss
   stops sims, which can be re-started); per-sim speed control from the UI.
+
+## Component 11 — Weather & environmental coupling ✅ (v0.11)
+
+Make the environment part of the simulation — and do it reusably.
+
+- [x] **Standalone, domain-agnostic package** `celltwin.weather` (zero back-deps on
+  the simulator): a `WeatherSample` contract + a one-method `WeatherProvider`
+  interface, with `Static` / `Synthetic` (deterministic diurnal, offline) /
+  `CsvReplay` / `OpenMeteo` (live, **no API key**) providers, plus a `CachedProvider`
+  that caches and **falls back offline on any error**. Declarative `build_provider`.
+- [x] **Physics coupling** (`celltwin.sim.environment`): maps a weather sample onto
+  three levers the thermal model already exposes — air temperature → ambient,
+  wind → convective cooling, solar → per-cell heat load. `BatteryPack.step` gains an
+  optional `ambient_c`; the `Simulator` queries the provider each step and stamps the
+  conditions onto each telemetry frame. Backward-compatible: no provider → unchanged.
+- [x] **Builder integration**: an optional `WeatherSpec` on `SystemSpec`
+  (`type="none"` by default), validated, exposed via `/api/builder/options`, and
+  summarised in the offline preview (ambient range, peak solar, ambient sparkline).
+  Preview substitutes a synthetic stand-in for live sources so it stays offline.
+- [x] **Live**: publisher `--spec` and twin-core-run sims pick up weather
+  automatically; a live source's first fetch runs **off the event loop**. Dashboard
+  Build form gains a **Weather** section and the system view a live ambient/wind/solar
+  strip + a cell-temp-vs-ambient overlay.
+
+**Verified:** `test_weather` (21) covers the samples, every provider (Open-Meteo
+parsed from a saved fixture — no network), the cache fallback, and an end-to-end
+proof that cell temperatures track a diurnal ambient; builder + simctl weather tests
+pass; dashboard `npm run build` and `mkdocs build --strict` clean.
+
+### Backlog
+- Persist weather to history (needs a schema column); calibrate coupling
+  coefficients against a real enclosure; async weather fetch client.

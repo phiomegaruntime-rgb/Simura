@@ -11,7 +11,9 @@ import asyncio
 
 import pytest
 
-from celltwin.builder import SystemSpec
+import json
+
+from celltwin.builder import SystemSpec, WeatherSpec
 from celltwin.twincore.simctl import PAUSED, RUNNING, STOPPED, SimManager
 
 
@@ -113,6 +115,30 @@ def test_remove_clears_retained_config_and_forgets():
         assert mgr.states() == {}
         # an empty retained payload was published to clear the retained config
         assert "" in pub.retained_configs("sim-4")
+
+    asyncio.run(run())
+
+
+def test_managed_sim_with_weather_publishes_conditions():
+    async def run():
+        pub = FakePublisher()
+        mgr = SimManager(pub.publish, default_speed=200.0)
+        spec = _spec(
+            "sim-wx",
+            weather=WeatherSpec("synthetic", {"mean_temp_c": 22.0, "temp_amplitude_c": 8.0}),
+        )
+        mgr.create(spec)
+        await mgr.start("sim-wx")
+        await _settle()
+        # A telemetry frame should carry the weather that produced it.
+        frames = [
+            json.loads(p)
+            for t, p, _ in pub.msgs
+            if t == "celltwin/telemetry/sim-wx"
+        ]
+        assert frames and frames[0]["telemetry"]["weather"] is not None
+        assert "air_temp_c" in frames[0]["telemetry"]["weather"]
+        await mgr.close()
 
     asyncio.run(run())
 

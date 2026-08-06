@@ -130,6 +130,7 @@ export default function BuildView({ onStarted }: { onStarted?: () => void }) {
       </div>
 
       <ProfileEditor spec={spec} options={options} onChange={set} />
+      <WeatherEditor spec={spec} options={options} onChange={set} />
       <FaultsEditor spec={spec} options={options} onChange={set} />
 
       {/* Actions */}
@@ -206,6 +207,78 @@ function ProfileEditor({
           />
         ))}
       </Row>
+    </Section>
+  );
+}
+
+function WeatherEditor({
+  spec,
+  options,
+  onChange,
+}: {
+  spec: SystemSpec;
+  options: BuilderOptions;
+  onChange: (patch: Partial<SystemSpec>) => void;
+}) {
+  const weather = spec.weather ?? { type: "none", params: {} };
+  const params = options.weather_params[weather.type] ?? {};
+  const setType = (type: string) =>
+    onChange({ weather: { type, params: { ...(options.weather_params[type] ?? {}) } } });
+  const setParam = (k: string, v: number | string) =>
+    onChange({ weather: { ...weather, params: { ...weather.params, [k]: v } } });
+
+  return (
+    <Section title="Weather (environmental coupling)">
+      <p className="text-xs text-muted -mt-1">
+        Drive the pack's ambient temperature, wind cooling and solar heat load from a weather
+        source. <span className="text-ink-secondary">synthetic</span> is a deterministic diurnal
+        cycle (offline); <span className="text-ink-secondary">open_meteo</span> pulls live data by
+        latitude/longitude. Leave as <span className="text-ink-secondary">none</span> to use the
+        fixed ambient above.
+      </p>
+      <Row>
+        <SelectField label="Source" value={weather.type} options={options.weather_types} onChange={setType} />
+        {weather.type === "csv" ? (
+          <TextField
+            label="path"
+            value={String(weather.params.path ?? "")}
+            onChange={(v) => setParam("path", v)}
+          />
+        ) : (
+          Object.keys(params).map((k) =>
+            k === "mode" ? (
+              <SelectField
+                key={k}
+                label="mode"
+                value={String(weather.params.mode ?? "forecast")}
+                options={["forecast", "archive"]}
+                onChange={(v) => setParam("mode", v)}
+              />
+            ) : typeof params[k] === "string" ? (
+              <TextField
+                key={k}
+                label={k}
+                value={String(weather.params[k] ?? params[k])}
+                onChange={(v) => setParam(k, v)}
+              />
+            ) : (
+              <NumField
+                key={k}
+                label={k}
+                value={Number(weather.params[k] ?? params[k])}
+                step={k.includes("lat") || k.includes("lon") ? 0.01 : 0.5}
+                onChange={(v) => setParam(k, v)}
+              />
+            ),
+          )
+        )}
+      </Row>
+      {weather.type === "open_meteo" && (
+        <p className="text-xs text-muted">
+          Live source · previews run offline with a synthetic stand-in, so use “Start in fleet” to
+          see real conditions.
+        </p>
+      )}
     </Section>
   );
 }
@@ -320,9 +393,28 @@ function PreviewPanel({ result: r, goLiveCmd }: { result: PreviewResult; goLiveC
         </div>
       )}
 
+      {r.weather_type !== "none" && r.min_ambient_c != null && (
+        <div className="rounded-md px-3 py-2 text-xs bg-surface-2 border border-hairline text-ink-secondary">
+          Weather source <span className="text-ink">{r.weather_type}</span>: ambient{" "}
+          <span className="text-ink">
+            {r.min_ambient_c.toFixed(1)}–{r.max_ambient_c?.toFixed(1)} °C
+          </span>
+          , peak solar <span className="text-ink">{r.max_solar_w_m2?.toFixed(0)} W/m²</span>. The max
+          cell temp below tracks this ambient.
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Spark title="State of charge" t={r.sparkline.t} y={r.sparkline.soc.map((v) => v * 100)} unit="%" color="#3987e5" />
-        <Spark title="Max cell temp" t={r.sparkline.t} y={r.sparkline.max_temp} unit="°C" color="#eda100" />
+        <Spark
+          title={r.sparkline.ambient ? "Cell temp vs ambient" : "Max cell temp"}
+          t={r.sparkline.t}
+          y={r.sparkline.max_temp}
+          y2={r.sparkline.ambient}
+          y2Label="ambient"
+          unit="°C"
+          color="#eda100"
+        />
         <Spark title="Pack voltage" t={r.sparkline.t} y={r.sparkline.voltage} unit="V" color="#0ca30c" />
       </div>
 
@@ -338,16 +430,23 @@ function Spark({
   title,
   t,
   y,
+  y2,
+  y2Label,
   unit,
   color,
 }: {
   title: string;
   t: number[];
   y: number[];
+  y2?: number[];
+  y2Label?: string;
   unit: string;
   color: string;
 }) {
-  const data = useMemo(() => t.map((tt, i) => ({ t: tt, y: y[i] })), [t, y]);
+  const data = useMemo(
+    () => t.map((tt, i) => ({ t: tt, y: y[i], y2: y2 ? y2[i] : undefined })),
+    [t, y, y2],
+  );
   return (
     <div className="rounded-lg bg-surface-2 border border-hairline p-3">
       <h4 className="text-xs font-semibold text-ink mb-1">{title}</h4>
@@ -362,8 +461,14 @@ function Spark({
               labelStyle={{ color: "#898781" }}
               itemStyle={{ color: "#ffffff" }}
               labelFormatter={(v) => `${Math.round(v as number)} s`}
-              formatter={(value: number) => [`${value.toFixed(1)} ${unit}`, title]}
+              formatter={(value: number, name: string) => [
+                `${value.toFixed(1)} ${unit}`,
+                name === "y2" ? y2Label ?? "ambient" : title,
+              ]}
             />
+            {y2 && (
+              <Line type="monotone" dataKey="y2" stroke="#6b7280" strokeWidth={1.5} strokeDasharray="4 3" dot={false} isAnimationActive={false} />
+            )}
             <Line type="monotone" dataKey="y" stroke={color} strokeWidth={2} dot={false} isAnimationActive={false} />
           </LineChart>
         </ResponsiveContainer>

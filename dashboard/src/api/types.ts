@@ -9,6 +9,16 @@ export interface CellTelemetry {
   soc: number;
 }
 
+// Environmental conditions a frame ran under (celltwin.weather.WeatherSample).
+export interface WeatherSample {
+  timestamp: number;
+  air_temp_c: number;
+  wind_speed_ms: number;
+  solar_w_m2: number;
+  humidity_frac: number | null;
+  source: string;
+}
+
 export interface PackTelemetry {
   time_s: number;
   pack_voltage_v: number;
@@ -20,6 +30,7 @@ export interface PackTelemetry {
   max_cell_voltage_v: number;
   voltage_imbalance_v: number;
   cells: CellTelemetry[];
+  weather?: WeatherSample | null; // present only when a weather source is attached
 }
 
 // The MQTT envelope, as delivered over the WebSocket.
@@ -219,6 +230,11 @@ export interface FaultSpec {
   params: Record<string, number | string>;
 }
 
+export interface WeatherSpec {
+  type: string; // none | static | synthetic | csv | open_meteo
+  params: Record<string, number | string>;
+}
+
 // Mirrors celltwin.builder.spec.SystemSpec (flat cell/pack/sim fields).
 export interface SystemSpec {
   system_id: string;
@@ -246,6 +262,7 @@ export interface SystemSpec {
   duration_s: number;
   profile: ProfileSpec;
   faults: FaultSpec[];
+  weather: WeatherSpec;
 }
 
 export interface CreateSystemPayload {
@@ -264,6 +281,8 @@ export interface BuilderOptions {
   fault_types: string[];
   fault_params: Record<string, Record<string, number>>;
   sensor_signals: string[];
+  weather_types: string[];
+  weather_params: Record<string, Record<string, number | string>>;
   default_spec: SystemSpec;
 }
 
@@ -286,12 +305,17 @@ export interface PreviewResult {
   time_to_limit_s: number | null;
   series_len: number;
   parallel_len: number;
+  weather_type: string;
+  min_ambient_c: number | null;
+  max_ambient_c: number | null;
+  max_solar_w_m2: number | null;
   sparkline: {
     t: number[];
     soc: number[];
     max_temp: number[];
     voltage: number[];
     power: number[];
+    ambient?: number[];
   };
 }
 

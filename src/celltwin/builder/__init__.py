@@ -19,27 +19,32 @@ and stream it into the twin with ``python -m celltwin.publisher --spec my.json``
 from .build import (
     FAULT_TYPES,
     PROFILE_TYPES,
+    build_coupling,
     build_faults,
     build_pack_config,
     build_profile,
     build_sim_config,
     build_simulator,
+    build_weather,
 )
 from .options import builder_options
 from .preview import PreviewResult, SpecError, preview
-from .spec import FaultSpec, ProfileSpec, SystemSpec
+from .spec import FaultSpec, ProfileSpec, SystemSpec, WeatherSpec
 from .validate import validate_spec
 
 __all__ = [
     "SystemSpec",
     "ProfileSpec",
     "FaultSpec",
+    "WeatherSpec",
     "validate_spec",
     "build_simulator",
     "build_pack_config",
     "build_sim_config",
     "build_profile",
     "build_faults",
+    "build_weather",
+    "build_coupling",
     "preview",
     "PreviewResult",
     "SpecError",

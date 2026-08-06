@@ -39,6 +39,20 @@ class FaultSpec:
 
 
 @dataclass
+class WeatherSpec:
+    """Optional environmental weather source driving the pack's ambient/cooling.
+
+    ``type`` is one of ``none | static | synthetic | csv | open_meteo`` (see
+    :mod:`celltwin.weather.config`). ``params`` carries the provider's settings
+    (e.g. ``latitude``/``longitude`` for ``open_meteo``). ``type="none"`` (the
+    default) means the pack uses its fixed ``ambient_temp_c`` as before.
+    """
+
+    type: str = "none"
+    params: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class SystemSpec:
     """A complete, serializable description of a battery system to simulate."""
 
@@ -74,6 +88,7 @@ class SystemSpec:
 
     profile: ProfileSpec = field(default_factory=ProfileSpec)
     faults: list[FaultSpec] = field(default_factory=list)
+    weather: WeatherSpec = field(default_factory=WeatherSpec)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -86,7 +101,15 @@ class SystemSpec:
         just what the user changed and older/newer clients stay compatible.
         """
         known = {f.name for f in fields(cls)}
-        kwargs: dict[str, Any] = {k: v for k, v in d.items() if k in known and k not in ("profile", "faults")}
+        nested = ("profile", "faults", "weather")
+        kwargs: dict[str, Any] = {k: v for k, v in d.items() if k in known and k not in nested}
+
+        weather = d.get("weather")
+        if isinstance(weather, dict):
+            kwargs["weather"] = WeatherSpec(
+                type=str(weather.get("type", "none")),
+                params=dict(weather.get("params", {})),
+            )
 
         prof = d.get("profile")
         if isinstance(prof, dict):

@@ -9,6 +9,7 @@ clear message instead of a stack trace.
 from __future__ import annotations
 
 from ..sim import chemistry_key_for
+from ..weather import WEATHER_TYPES
 from .build import FAULT_TYPES, PROFILE_TYPES
 from .spec import SystemSpec
 
@@ -84,6 +85,9 @@ def validate_spec(spec: SystemSpec) -> list[str]:
     else:
         errors.extend(_profile_param_errors(spec))
 
+    # Weather (optional environmental source).
+    errors.extend(_weather_errors(spec))
+
     # Faults.
     for i, f in enumerate(spec.faults):
         where = f"fault[{i}]"
@@ -101,6 +105,39 @@ def validate_spec(spec: SystemSpec) -> list[str]:
                 errors.append(f"{where}: sensor_drift signal must be 'voltage' or 'temp'")
 
     return errors
+
+
+def _weather_errors(spec: SystemSpec) -> list[str]:
+    w = getattr(spec, "weather", None)
+    if w is None:
+        return []
+    errs: list[str] = []
+    if w.type not in WEATHER_TYPES:
+        errs.append(
+            f"unknown weather type '{w.type}'; use one of {', '.join(WEATHER_TYPES)}"
+        )
+        return errs
+    p = w.params or {}
+    if w.type == "open_meteo":
+        for coord, lo, hi in (("latitude", -90.0, 90.0), ("longitude", -180.0, 180.0)):
+            if coord not in p:
+                errs.append(f"weather open_meteo requires '{coord}'")
+            else:
+                try:
+                    val = float(p[coord])
+                except (TypeError, ValueError):
+                    errs.append(f"weather open_meteo '{coord}' must be a number")
+                    continue
+                if not lo <= val <= hi:
+                    errs.append(f"weather open_meteo '{coord}' must be in [{lo}, {hi}]")
+        mode = str(p.get("mode", "forecast"))
+        if mode not in ("forecast", "archive"):
+            errs.append("weather open_meteo 'mode' must be 'forecast' or 'archive'")
+        if mode == "archive" and not (p.get("start_date") and p.get("end_date")):
+            errs.append("weather open_meteo archive mode needs 'start_date' and 'end_date'")
+    if w.type == "csv" and not str(p.get("path", "")).strip():
+        errs.append("weather csv requires a 'path'")
+    return errs
 
 
 def _profile_param_errors(spec: SystemSpec) -> list[str]:

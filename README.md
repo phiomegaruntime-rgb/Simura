@@ -16,7 +16,8 @@ it and you have a living battery on your laptop: no hardware, no lab, no fire.
 > (fault diagnosis, state-of-health, RUL & safety), and 6 (real-hardware
 > connectors: Modbus / OPC-UA / MQTT) are done and tested, as are Component 8
 > (validation against open battery datasets), Component 9 (build your own
-> system), and Component 10 (run/pause/resume/delete systems from the fleet).
+> system), Component 10 (run/pause/resume/delete systems from the fleet), and
+> Component 11 (weather-driven environmental coupling, as a reusable package).
 > Component 7 (fleet rollup + optional API-key auth) is underway. See the
 > [roadmap](docs/roadmap.md).
 
@@ -153,6 +154,10 @@ python -m celltwin.publisher --spec my-system.json --speed 10 --loop   # go live
 - **Lifecycle control** — the twin core can run simulations itself and
   **start / pause / resume / delete** them from the fleet; real-time feeds are
   ingest-only and Delete-able. Choose sim or real-time per system.
+- **Weather** — drive a pack's ambient temperature, wind cooling and solar heat
+  load from real ([Open-Meteo](https://open-meteo.com), no API key) or synthetic
+  weather. Built as a **reusable, battery-agnostic package** (`celltwin.weather`).
+  See [docs/weather.md](docs/weather.md).
 
 ## Documentation
 
