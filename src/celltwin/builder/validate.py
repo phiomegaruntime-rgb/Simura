@@ -76,6 +76,8 @@ def validate_spec(spec: SystemSpec) -> list[str]:
         )
     if spec.dt_s > 0 and spec.n_steps() < 1:
         errors.append("duration_s must be at least one dt_s step")
+    if spec.dt_s > 0:
+        errors.extend(_stability_errors(spec))
 
     # Profile.
     if spec.profile.type not in PROFILE_TYPES:
@@ -105,6 +107,49 @@ def validate_spec(spec: SystemSpec) -> list[str]:
                 errors.append(f"{where}: sensor_drift signal must be 'voltage' or 'temp'")
 
     return errors
+
+
+def _stability_errors(spec: SystemSpec) -> list[str]:
+    """Reject a timestep too large for the explicit-Euler integrators.
+
+    The pack integrates two stiff sub-systems with forward Euler, each stable
+    only while ``dt < 2*tau``:
+
+    * the RC polarization branch, ``tau_rc = r1 * c1``;
+    * the lumped thermal node, ``tau_th = c_th / k_cool``.
+
+    Above that bound the state diverges (temperatures explode to absurd values)
+    rather than crashing -- a silently wrong result, which is exactly what
+    validation should catch. Wind-driven weather cooling can raise ``k_cool`` by
+    up to the coupling's ``max_cooling_mult``, tightening the thermal bound, so we
+    account for it when a weather source is attached.
+    """
+    limits: list[tuple[str, float]] = []
+
+    if spec.r1_ohm > 0 and spec.c1_farad > 0:
+        limits.append(("RC polarization branch (r1*c1)", 2.0 * spec.r1_ohm * spec.c1_farad))
+
+    k_cool = spec.cooling_conductance_w_per_k
+    w = getattr(spec, "weather", None)
+    if w is not None and w.type not in (None, "", "none"):
+        try:
+            max_mult = float((w.params or {}).get("max_cooling_mult", 3.0))
+        except (TypeError, ValueError):
+            max_mult = 3.0
+        k_cool *= max(1.0, max_mult)
+    if k_cool > 0 and spec.thermal_capacity_j_per_k > 0:
+        limits.append(("thermal integrator (c_th/k_cool)", 2.0 * spec.thermal_capacity_j_per_k / k_cool))
+
+    if not limits:
+        return []
+
+    name, bound = min(limits, key=lambda kv: kv[1])
+    if spec.dt_s >= bound:
+        return [
+            f"dt_s = {spec.dt_s:g} s is too large for stable integration of the {name}; "
+            f"use dt_s < {bound:.3g} s (smaller still for accuracy)"
+        ]
+    return []
 
 
 def _weather_errors(spec: SystemSpec) -> list[str]:

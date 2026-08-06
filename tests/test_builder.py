@@ -186,3 +186,38 @@ def test_builder_options_exposes_weather():
     opts = builder_options()
     assert "synthetic" in opts["weather_types"]
     assert "open_meteo" in opts["weather_params"]
+
+
+# -- integrator stability guard --------------------------------------------
+def test_stability_guard_rejects_coarse_dt():
+    # Defaults: RC tau = r1*c1 = 20 s -> stable only for dt < 40 s.
+    errs = validate_spec(SystemSpec(dt_s=60.0))
+    assert any("too large for stable integration" in e for e in errs)
+    assert any("RC polarization" in e for e in errs)
+
+
+def test_stability_guard_allows_fine_dt():
+    assert validate_spec(SystemSpec(dt_s=30.0)) == []  # 30 < 40 bound
+    assert validate_spec(SystemSpec()) == []           # default dt=1
+
+
+def test_stability_guard_thermal_bound_with_strong_cooling():
+    # Huge cooling conductance makes the thermal integrator the binding limit:
+    # tau_th = c_th/k_cool = 70/40 = 1.75 s -> dt must be < 3.5 s.
+    s = SystemSpec(dt_s=5.0, cooling_conductance_w_per_k=40.0, r1_ohm=0.0)
+    errs = validate_spec(s)
+    assert any("thermal integrator" in e for e in errs)
+
+
+def test_stability_guard_tightens_under_weather_cooling():
+    # k_cool=8, thermal bound = 2*70/8 = 17.5 s with no weather (dt=12 ok);
+    # weather's 3x wind boost -> k_cool_eff=24, bound = 2*70/24 = 5.83 s (dt=12 fails).
+    base = SystemSpec(dt_s=12.0, cooling_conductance_w_per_k=8.0, r1_ohm=0.0)
+    assert validate_spec(base) == []
+    windy = SystemSpec(
+        dt_s=12.0,
+        cooling_conductance_w_per_k=8.0,
+        r1_ohm=0.0,
+        weather=WeatherSpec("synthetic", {}),
+    )
+    assert any("thermal integrator" in e for e in validate_spec(windy))

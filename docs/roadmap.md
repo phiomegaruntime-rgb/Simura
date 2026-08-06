@@ -280,6 +280,10 @@ Make the environment part of the simulation — and do it reusably.
   automatically; a live source's first fetch runs **off the event loop**. Dashboard
   Build form gains a **Weather** section and the system view a live ambient/wind/solar
   strip + a cell-temp-vs-ambient overlay.
+- [x] **Integrator stability guard**: `validate_spec` now rejects a `dt_s` too large
+  for stable explicit-Euler integration of the RC branch (`dt < 2·r1·c1`) or the
+  thermal node (`dt < 2·c_th/k_cool`, tightened by wind cooling), turning a silent
+  numerical blow-up into a clear error with a suggested `dt_s`.
 
 **Verified:** `test_weather` (21) covers the samples, every provider (Open-Meteo
 parsed from a saved fixture — no network), the cache fallback, and an end-to-end
