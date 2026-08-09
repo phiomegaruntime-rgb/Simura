@@ -6,10 +6,22 @@ Vite. In production nginx serves the static bundle and reverse-proxies `/api` an
 dashboard consumes only the twin core's public API — the same contract real
 hardware feeds.
 
+## Landing: choose a component
+
+The dashboard opens on a **landing page of cards**, one per simulation
+component — **Batteries** (the BESS twin) and **Wires** (the conductor library).
+The header shows no nav here; the cards *are* the nav. Picking a card drills into
+that component and the header switches to a sub-nav scoped to just that
+component (with a **← Components** link back to the landing). The Simura logo
+returns to the landing from anywhere.
+
+- **Batteries** → Fleet, Build, Validation.
+- **Wires** → Wiring planner, Validation.
+
 ## Fleet overview
 
-The dashboard opens on a **fleet overview**: a summary strip (systems, live
-count, counts by status, safety alarms) above a grid of system cards, ordered
+The Batteries component opens on a **fleet overview**: a summary strip (systems,
+live count, counts by status, safety alarms) above a grid of system cards, ordered
 worst-first. Each card shows the system's overall status (icon + label + color),
 a one-line reason, and headline metrics (SoC, max temp, anomaly σ, SoH) with a
 live/offline indicator. Clicking a card drills into that system's detail view.
@@ -47,13 +59,30 @@ The detail view is the single-pack cockpit:
 
 A "← Fleet" control returns to the overview; a per-system selector switches packs.
 
+## Wires (Component 12)
+
+The Wires component exposes the conductor library over pure-compute endpoints (no
+MQTT, no DB), across two sub-views:
+
+- **Wiring planner** — over `simura.wires`: describe a run and a load and *check*
+  it (ampacity / voltage drop / temperature, with the failing constraints listed)
+  or *recommend* the smallest adequate gauge, plus the wire catalog as a table.
+- **Validation** — check the conductor model against published DC-resistance
+  standards (annealed copper at 20 °C / 75 °C, hard-drawn aluminium), or against
+  your own measured-resistance CSV. Simura replays each gauge through the same
+  `Wire` the twin uses and reports the per-gauge percent error (RMSE / MAE / max /
+  mean-bias) with a published-vs-model resistance chart. The parallel to the
+  battery **Validation** view.
+
+See [Wires](wires.md).
+
 ## Design system
 
 The dashboard follows a data-viz design system:
 
 - **Status color is never carried alone** — a reserved status color is always
   paired with an icon and a label. The backend fleet rollup mirrors the same
-  thresholds (`celltwin.fleet.levels` ↔ `dashboard/src/lib/status.ts`) so the
+  thresholds (`simura.fleet.levels` ↔ `dashboard/src/lib/status.ts`) so the
   card and the detail view never disagree.
 - **Absolute thermal scale** for the heatmap so red means genuinely hot;
   **relative ramps** for voltage/SoC so imbalance shows.

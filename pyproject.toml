@@ -3,13 +3,13 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "celltwin"
-version = "0.11.0"
+name = "simura"
+version = "0.14.0"
 description = "An open, physics-based digital twin for battery energy storage systems (BESS)."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
-authors = [{ name = "CellTwin contributors" }]
+authors = [{ name = "Simura contributors" }]
 keywords = ["digital-twin", "battery", "bess", "energy-storage", "simulation", "predictive-maintenance"]
 dependencies = [
     "numpy>=1.24",
@@ -40,9 +40,9 @@ validate = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/celltwin"]
+packages = ["src/simura"]
 # Bundled synthetic validation sample must ship in the wheel.
-artifacts = ["src/celltwin/validate/data/*.csv"]
+artifacts = ["src/simura/validate/data/*.csv"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

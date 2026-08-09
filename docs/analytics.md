@@ -1,14 +1,14 @@
 # Analytics
 
-CellTwin's analytics turn telemetry into *insight*: not just that something is
+Simura's analytics turn telemetry into *insight*: not just that something is
 wrong, but **what**, **how healthy**, **how long**, and **how dangerous**. Both
 engines are pure libraries, unit-tested against the simulator's fault scenarios,
 and run together in the `analytics` service on the same frame.
 
 Run the whole pipeline offline with
-[`examples/run_analytics.py`](https://github.com/celltwin/celltwin/blob/main/examples/run_analytics.py).
+[`examples/run_analytics.py`](https://github.com/simura/simura/blob/main/examples/run_analytics.py).
 
-## Anomaly detection (`celltwin.detect`)
+## Anomaly detection (`simura.detect`)
 
 Every cell in a pack sees the same load, so its siblings are a free, always-valid
 baseline. For each metric the engine takes the pack **median** as consensus and
@@ -23,9 +23,9 @@ smooths with an EWMA so only *sustained* deviation flags.
   temperature limit; a healthy pack stays under score 1.2.
 
 The detector publishes an `AnomalyReport` (per-cell scores + the worst offender)
-on `celltwin/anomaly/{id}`.
+on `simura/anomaly/{id}`.
 
-## Diagnosis, SoH, RUL & safety (`celltwin.health`)
+## Diagnosis, SoH, RUL & safety (`simura.health`)
 
 The assessment engine consumes the anomaly z-scores and health features aligned
 to the same frame:

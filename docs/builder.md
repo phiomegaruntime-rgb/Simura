@@ -1,13 +1,13 @@
 # System builder
 
-Everything else in CellTwin assumes a system already exists. The **builder** lets
+Everything else in Simura assumes a system already exists. The **builder** lets
 you design your own: describe a battery system as a plain, serializable
 `SystemSpec`, preview it **offline** to see how it behaves, then stream it live
 into the twin with one command.
 
 ## The spec
 
-A `SystemSpec` (`celltwin.builder.spec`) is a recipe — no runtime state:
+A `SystemSpec` (`simura.builder.spec`) is a recipe — no runtime state:
 
 - **Chemistry** — `NMC` / `LFP` / `LCO` / `NCA` (selects the OCV curve).
 - **Cell** — capacity, R0/R1/C1, efficiency, thermal capacity & cooling, limits.
@@ -18,7 +18,7 @@ A `SystemSpec` (`celltwin.builder.spec`) is a recipe — no runtime state:
 - **Sim** — timestep and duration.
 
 ```python
-from celltwin.builder import SystemSpec, ProfileSpec, FaultSpec, preview
+from simura.builder import SystemSpec, ProfileSpec, FaultSpec, preview
 
 spec = SystemSpec(
     name="My LFP rack", chemistry="LFP", series=16, parallel=4, initial_soc=0.9,
@@ -45,9 +45,9 @@ a fault targeting a non-existent cell, too many steps, …) — the same list
 ## CLI
 
 ```bash
-python -m celltwin.builder --example > my-system.json   # a starter spec
-python -m celltwin.builder --validate my-system.json     # check it
-python -m celltwin.builder --preview  my-system.json     # run it offline
+python -m simura.builder --example > my-system.json   # a starter spec
+python -m simura.builder --validate my-system.json     # check it
+python -m simura.builder --preview  my-system.json     # run it offline
 ```
 
 ## Go live
@@ -56,7 +56,7 @@ A spec becomes a live system by handing it to the publisher — it builds exactl
 the same simulator the preview used and streams its telemetry into the twin:
 
 ```bash
-python -m celltwin.publisher --spec my-system.json --speed 10 --loop
+python -m simura.publisher --spec my-system.json --speed 10 --loop
 ```
 
 The system then shows up in the fleet, dashboard, anomaly detection, and

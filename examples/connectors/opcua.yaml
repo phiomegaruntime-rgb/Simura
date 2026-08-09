@@ -1,6 +1,6 @@
-# Connect an OPC-UA BMS to CellTwin.
-#   python -m celltwin.connect --config examples/connectors/opcua.yaml
-# Device sim:  python -m celltwin.connect.devsim --protocol opcua --port 4840
+# Connect an OPC-UA BMS to Simura.
+#   python -m simura.connect --config examples/connectors/opcua.yaml
+# Device sim:  python -m simura.connect.devsim --protocol opcua --port 4840
 
 protocol: opcua
 system_id: bess-opcua-01
@@ -18,7 +18,7 @@ mapping:
   # OPC-UA server exposes SI floats directly, so scales are 1.0 (the defaults).
 
 source:
-  url: "opc.tcp://localhost:4840/celltwin/"
+  url: "opc.tcp://localhost:4840/simura/"
   cell_voltage_node: "ns=2;s=CellVoltages"
   cell_temp_node: "ns=2;s=CellTemps"
   pack_current_node: "ns=2;s=PackCurrent"

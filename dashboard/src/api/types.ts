@@ -1,4 +1,4 @@
-// Mirrors the twin core's telemetry contract (celltwin.sim.telemetry).
+// Mirrors the twin core's telemetry contract (simura.sim.telemetry).
 
 export interface CellTelemetry {
   series_index: number;
@@ -9,7 +9,7 @@ export interface CellTelemetry {
   soc: number;
 }
 
-// Environmental conditions a frame ran under (celltwin.weather.WeatherSample).
+// Environmental conditions a frame ran under (simura.weather.WeatherSample).
 export interface WeatherSample {
   timestamp: number;
   air_temp_c: number;
@@ -110,7 +110,7 @@ export interface SystemInfo {
   live: boolean;
 }
 
-// Fleet rollup (celltwin.fleet) — one status row per system + a summary.
+// Fleet rollup (simura.fleet) — one status row per system + a summary.
 export interface FleetSystem {
   system_id: string;
   name: string | null;
@@ -165,7 +165,7 @@ export interface AnomalyPoint {
   maxScore: number;
 }
 
-// Validation catalog + report (celltwin.validate).
+// Validation catalog + report (simura.validate).
 export interface DatasetSpec {
   id: string;
   name: string;
@@ -216,7 +216,7 @@ export interface ValidationReport {
   filename?: string;
 }
 
-// ---- System builder (celltwin.builder) ----
+// ---- System builder (simura.builder) ----
 export interface ProfileSpec {
   type: string;
   params: Record<string, number>;
@@ -235,7 +235,7 @@ export interface WeatherSpec {
   params: Record<string, number | string>;
 }
 
-// Mirrors celltwin.builder.spec.SystemSpec (flat cell/pack/sim fields).
+// Mirrors simura.builder.spec.SystemSpec (flat cell/pack/sim fields).
 export interface SystemSpec {
   system_id: string;
   name: string;
@@ -331,4 +331,103 @@ export interface UploadOptions {
   dischargePositive?: boolean;
   currentScale?: number;
   nominalCapacityAh?: number;
+}
+
+// ---- Wires (simura.wires) ----
+
+export interface WireType {
+  id: string;
+  name: string;
+  material: string;
+  awg: number;
+  area_mm2: number;
+  insulation: string;
+  temp_rating_c: number;
+  ampacity_a: number;
+  notes: string;
+}
+
+export interface WireCatalog {
+  materials: string[];
+  insulations: string[];
+  wire_types: WireType[];
+}
+
+// simura.wires.planning.RunAssessment
+export interface RunAssessment {
+  resistance_ohm: number;
+  voltage_drop_v: number;
+  voltage_drop_pct: number | null;
+  power_loss_w: number;
+  steady_state_temp_c: number;
+  ampacity_a: number;
+  ampacity_utilization: number;
+  temp_rating_c: number;
+  problems: string[];
+}
+
+// simura.wires.planning.Recommendation
+export interface Recommendation {
+  wire_type: WireType | null;
+  assessment: RunAssessment | null;
+  rationale: string;
+  ok: boolean;
+}
+
+// ---- Wire validation (simura.wires.validation) ----
+
+// simura.wires.validation.standards.WireStandardSpec (as returned by the API)
+export interface WireStandardSpec {
+  id: string;
+  name: string;
+  institution: string;
+  material: string;
+  ref_temp_c: number;
+  quantity: string;
+  unit: string;
+  license: string;
+  license_url: string;
+  citation: string;
+  homepage_url: string;
+  what_it_validates: string[];
+  notes: string;
+  n_points: number;
+}
+
+export interface WireValidationMetrics {
+  rmse_pct: number;
+  mae_pct: number;
+  max_abs_pct: number;
+  mean_bias_pct: number;
+}
+
+// simura.wires.validation.engine.WireValidationReport
+export interface WireValidationReport {
+  standard_id: string;
+  material: string;
+  ref_temp_c: number;
+  n_points: number;
+  quantity: string;
+  unit: string;
+  data_source: string;
+  metrics: WireValidationMetrics;
+  overlay: {
+    awg: number[];
+    area_mm2: number[];
+    published_ohm_per_km: number[];
+    model_ohm_per_km: number[];
+    error_pct: number[];
+  };
+  notes: string;
+  // Echoed by POST /api/wires/validation/upload.
+  filename?: string;
+}
+
+// Options for a user-supplied resistance-CSV validation.
+export interface WireUploadOptions {
+  material?: string;
+  awgCol?: string;
+  resistanceCol?: string;
+  refTempC?: number;
+  resistanceUnit?: string;
 }

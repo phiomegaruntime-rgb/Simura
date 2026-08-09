@@ -17,7 +17,7 @@ from pathlib import Path
 # Allow running from a source checkout without installing.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from celltwin.sim import (  # noqa: E402
+from simura.sim import (  # noqa: E402
     ChargeDischargeCycle,
     InternalShort,
     PackConfig,

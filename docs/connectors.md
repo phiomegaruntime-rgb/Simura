@@ -27,13 +27,13 @@ simulator). Run a device, then a connector pointed at it — you'll also need an
 MQTT broker (the `docker compose` stack starts one):
 
 ```bash
-python -m celltwin.connect.devsim --protocol modbus --port 5020 --scenario fault
-python -m celltwin.connect --config examples/connectors/modbus.yaml
+python -m simura.connect.devsim --protocol modbus --port 5020 --scenario fault
+python -m simura.connect --config examples/connectors/modbus.yaml
 ```
 
 The Modbus device + connector are already wired into the default stack as the
 `bess-modbus-01` system. Full recipes and a mapping cheatsheet live in the
-[connectors example README](https://github.com/celltwin/celltwin/blob/main/examples/connectors/README.md).
+[connectors example README](https://github.com/simura/simura/blob/main/examples/connectors/README.md).
 
 ## The mapping
 

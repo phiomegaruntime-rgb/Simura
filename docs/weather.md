@@ -6,10 +6,10 @@ whatever the air temperature is. The **weather** layer adds that environment to
 the twin: it drives the pack's ambient temperature, convective cooling, and solar
 heat load from a real (or synthetic) weather source.
 
-It is built as a **standalone, domain-agnostic package** (`celltwin.weather`) that
+It is built as a **standalone, domain-agnostic package** (`simura.weather`) that
 knows nothing about batteries — so it can be reused in any project where the
 environment drives a system's behaviour. The battery-specific translation is a
-thin adapter in `celltwin.sim.environment`.
+thin adapter in `simura.sim.environment`.
 
 ## Providers
 
@@ -26,7 +26,7 @@ Unix-epoch instant:
 | `CachedProvider` | Wraps a live source: caches by time bucket and **falls back to an offline model on any error**, so a network blip never crashes a run. |
 
 ```python
-from celltwin.weather import SyntheticProvider
+from simura.weather import SyntheticProvider
 
 wx = SyntheticProvider(mean_temp_c=22, temp_amplitude_c=10, tz_offset_h=1)
 sample = wx.at(1_704_110_400)          # 2024-01-01 12:00 UTC
@@ -36,7 +36,7 @@ print(sample.air_temp_c, sample.solar_w_m2, sample.wind_speed_ms)
 ## How weather affects the pack
 
 The pack's thermal model already has one environmental input — the ambient it
-cools toward. The coupling (`celltwin.sim.environment.EnvironmentCoupling`) maps a
+cools toward. The coupling (`simura.sim.environment.EnvironmentCoupling`) maps a
 weather sample onto **three physical levers**:
 
 | Weather variable | Effect on the pack |
@@ -62,7 +62,7 @@ Weather is an optional, declarative part of a `SystemSpec` — a `WeatherSpec` w
 `ambient_temp_c`, so existing specs are unchanged.
 
 ```python
-from celltwin.builder import SystemSpec, ProfileSpec, WeatherSpec, preview
+from simura.builder import SystemSpec, ProfileSpec, WeatherSpec, preview
 
 spec = SystemSpec(
     name="Outdoor LFP rack", chemistry="LFP", series=16, parallel=4,
@@ -85,7 +85,7 @@ so it never makes a network call and stays reproducible. To see *real* condition
 run the system live — start it in the fleet from the dashboard, or stream it:
 
 ```bash
-python -m celltwin.publisher --spec my-system.json --speed 60 --loop
+python -m simura.publisher --spec my-system.json --speed 60 --loop
 ```
 
 A twin-core-run simulation performs the live provider's first fetch **off the
@@ -97,8 +97,8 @@ under (visible in the dashboard's system view).
 Sample any provider over a window of hours:
 
 ```bash
-python -m celltwin.weather --synthetic --hours 24
-python -m celltwin.weather --open-meteo --lat 52.52 --lon 13.41 --hours 12
+python -m simura.weather --synthetic --hours 24
+python -m simura.weather --open-meteo --lat 52.52 --lon 13.41 --hours 12
 ```
 
 ## Honest limits

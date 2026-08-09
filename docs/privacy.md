@@ -1,11 +1,11 @@
 # Privacy
 
-CellTwin is **self-hosted software**, a product of **Simura**. You run it on your
+Simura is **self-hosted software**. You run it on your
 own machine or infrastructure, and this policy describes how it handles data.
 
 ## No data collection
 
-CellTwin does **not** collect analytics, telemetry, or personal data, and it does
+Simura does **not** collect analytics, telemetry, or personal data, and it does
 **not** phone home. The dashboard talks only to the twin core **you** run; neither
 sends data to Simura or any third party.
 
@@ -23,7 +23,7 @@ stored, indexed, or transmitted anywhere.
 
 ## Third-party services
 
-CellTwin makes no outbound network calls of its own. If you follow links in the
+Simura makes no outbound network calls of its own. If you follow links in the
 app (documentation, dataset homepages) or download an external dataset, those
 third-party sites have their own privacy practices, which this policy does not
 cover.

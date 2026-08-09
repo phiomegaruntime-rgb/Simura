@@ -23,7 +23,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from celltwin.sim import PackConfig, SimConfig, Simulator  # noqa: E402
+from simura.sim import PackConfig, SimConfig, Simulator  # noqa: E402
 
 # One simulated "day" compressed to 24 * 60 s = 1440 s (a minute per hour) so the
 # example runs in a blink. Schedule is (start_hour, end_hour, pack_amps); positive
@@ -41,7 +41,7 @@ SCHEDULE: list[tuple[float, float, float]] = [
 
 
 class GridDispatch:
-    """A piecewise daily dispatch schedule as a CellTwin load profile."""
+    """A piecewise daily dispatch schedule as a Simura load profile."""
 
     def __init__(self, schedule: list[tuple[float, float, float]], hour_s: float) -> None:
         self.schedule = schedule

@@ -1,8 +1,8 @@
-# CellTwin
+# Simura
 
 **An open, physics-based digital twin for battery energy storage systems (BESS).**
 
-CellTwin simulates a battery — from a single cell to a full rack — with real
+Simura simulates a battery — from a single cell to a full rack — with real
 electro-thermal dynamics, cell-to-cell imbalance, and *injectable faults*, then
 streams the same telemetry a real Battery Management System (BMS) would. Clone
 it and you have a living battery on your laptop: no hardware, no lab, no fire.
@@ -18,7 +18,7 @@ it and you have a living battery on your laptop: no hardware, no lab, no fire.
 Battery health and safety is one of the most valuable digital-twin use cases in
 energy today — state-of-charge, state-of-health, and thermal-runaway early
 warning are worth real money and prevent real fires. But you can't learn or
-prototype on a real 1 MWh rack. CellTwin gives everyone a physically faithful,
+prototype on a real 1 MWh rack. Simura gives everyone a physically faithful,
 fully controllable battery to build diagnostics, dashboards, and ML on top of.
 
 ## What's inside

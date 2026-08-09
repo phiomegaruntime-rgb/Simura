@@ -1,9 +1,9 @@
 {
-  "name": "celltwin-dashboard",
+  "name": "simura-dashboard",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.14.0",
   "type": "module",
-  "description": "Live dashboard for the CellTwin BESS digital twin.",
+  "description": "Live dashboard for the Simura BESS digital twin.",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

@@ -1,17 +1,17 @@
-"""Validate the CellTwin model against a battery dataset -- offline demo.
+"""Validate the Simura model against a battery dataset -- offline demo.
 
 Every twin is only as trustworthy as the physics behind it. This example runs the
-:mod:`celltwin.validate` pipeline end-to-end against the bundled *synthetic*
+:mod:`simura.validate` pipeline end-to-end against the bundled *synthetic*
 sample (no download needed): it replays the sample's measured current through
-CellTwin's own cell model and reports how closely the predicted terminal voltage
+Simura's own cell model and reports how closely the predicted terminal voltage
 matches the measured one -- first with nominal parameters, then after fitting the
 internal resistance.
 
 To validate against *real* data instead, browse the catalog and point a loader at
 your own download::
 
-    python -m celltwin.validate --list
-    python -m celltwin.validate --dataset oxford-degradation --file cell1.mat --fit
+    python -m simura.validate --list
+    python -m simura.validate --dataset oxford-degradation --file cell1.mat --fit
 
 Usage:
     python examples/validate_demo.py
@@ -26,7 +26,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from celltwin.validate import (  # noqa: E402
+from simura.validate import (  # noqa: E402
     get_dataset,
     list_datasets,
     load_sample,
@@ -38,7 +38,7 @@ def main() -> None:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-    print("Open datasets you can validate against (celltwin.validate.catalog):\n")
+    print("Open datasets you can validate against (simura.validate.catalog):\n")
     for d in list_datasets():
         tag = "  [SYNTHETIC]" if d.synthetic else ""
         print(f"  {d.id:<20} {d.chemistry:<10} {d.license}{tag}")

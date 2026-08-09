@@ -7,9 +7,9 @@ right cell and driver -- and it must all run as a pure library, no infra.
 
 from __future__ import annotations
 
-from celltwin.detect import AnomalyEngine
-from celltwin.detect.report import AnomalyReport
-from celltwin.sim import (
+from simura.detect import AnomalyEngine
+from simura.detect.report import AnomalyReport
+from simura.sim import (
     ChargeDischargeCycle,
     InternalShort,
     PackConfig,
@@ -17,7 +17,7 @@ from celltwin.sim import (
     Simulator,
     ThermalRunaway,
 )
-from celltwin.sim.telemetry import PackTelemetry
+from simura.sim.telemetry import PackTelemetry
 
 
 def _run(scenario: str) -> list[tuple[float, float, AnomalyReport]]:

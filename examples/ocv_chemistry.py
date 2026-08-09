@@ -1,9 +1,9 @@
 """Swap the cell chemistry by replacing the OCV-SoC curve (NMC vs LFP).
 
 The open-circuit-voltage vs state-of-charge curve is a chemistry's electrical
-fingerprint. CellTwin's default is an illustrative NMC curve; LFP (lithium iron
+fingerprint. Simura's default is an illustrative NMC curve; LFP (lithium iron
 phosphate) has a famously *flat* plateau across the mid-SoC range. This example
-builds both curves with :func:`celltwin.sim.make_ocv`, compares them, and shows
+builds both curves with :func:`simura.sim.make_ocv`, compares them, and shows
 how flatness makes estimating SoC from voltage much harder for LFP -- exactly the
 sparsity a hardware connector has to cope with.
 
@@ -31,8 +31,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from celltwin.sim import make_ocv  # noqa: E402
-from celltwin.sim.ocv import NMC_OCV_TABLE  # noqa: E402
+from simura.sim import make_ocv  # noqa: E402
+from simura.sim.ocv import NMC_OCV_TABLE  # noqa: E402
 
 # An illustrative LFP curve: ~3.2 V nominal with a very flat 20-90% plateau.
 LFP_OCV_TABLE: list[tuple[float, float]] = [

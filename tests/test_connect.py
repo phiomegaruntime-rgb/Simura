@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import asyncio
 
-from celltwin.connect import DeviceMapping, SourceFrame, build_telemetry
-from celltwin.connect.decode import build_telemetry as decode
-from celltwin.sim import ChargeDischargeCycle, InternalShort, PackConfig, SimConfig, Simulator
+from simura.connect import DeviceMapping, SourceFrame, build_telemetry
+from simura.connect.decode import build_telemetry as decode
+from simura.sim import ChargeDischargeCycle, InternalShort, PackConfig, SimConfig, Simulator
 
 
 # --- decode unit tests -------------------------------------------------------
@@ -83,8 +83,8 @@ def test_modbus_roundtrip():
     )
     from pymodbus.server import StartAsyncTcpServer
 
-    from celltwin.connect.devsim import encode_registers
-    from celltwin.connect.modbus import ModbusConnector, ModbusSource
+    from simura.connect.devsim import encode_registers
+    from simura.connect.modbus import ModbusConnector, ModbusSource
 
     original = _sample_telemetry()
     port = 15021
@@ -132,10 +132,10 @@ def test_modbus_roundtrip():
 # --- OPC-UA round-trip -------------------------------------------------------
 
 def test_opcua_roundtrip():
-    from celltwin.connect.devsim import run_opcua_device
-    from celltwin.connect.opcua import OpcUaConnector, OpcUaSource
+    from simura.connect.devsim import run_opcua_device
+    from simura.connect.opcua import OpcUaConnector, OpcUaSource
 
-    url = "opc.tcp://127.0.0.1:14841/celltwin/"
+    url = "opc.tcp://127.0.0.1:14841/simura/"
 
     async def scenario():
         server, node_ids, task = await run_opcua_device(url, scenario="fault", speed=40.0)
@@ -163,7 +163,7 @@ def test_opcua_roundtrip():
 # --- MQTT bridge mapping -----------------------------------------------------
 
 def test_mqtt_bridge_extract_and_decode():
-    from celltwin.connect.mqtt_bridge import MqttBridgeConnector, MqttSource
+    from simura.connect.mqtt_bridge import MqttBridgeConnector, MqttSource
 
     conn = MqttBridgeConnector(
         system_id="t",

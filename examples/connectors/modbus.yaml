@@ -1,7 +1,7 @@
-# Connect a Modbus TCP BMS to CellTwin.
-#   python -m celltwin.connect --config examples/connectors/modbus.yaml
+# Connect a Modbus TCP BMS to Simura.
+#   python -m simura.connect --config examples/connectors/modbus.yaml
 # Point it at a device sim first (another terminal):
-#   python -m celltwin.connect.devsim --protocol modbus --port 5020
+#   python -m simura.connect.devsim --protocol modbus --port 5020
 
 protocol: modbus
 system_id: bess-modbus-01

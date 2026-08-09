@@ -33,7 +33,7 @@
                  └─────────────────────────────────────────────┘
 ```
 
-### Modules (`src/celltwin/sim/`)
+### Modules (`src/simura/sim/`)
 
 | File | Responsibility |
 |------|----------------|
@@ -60,9 +60,9 @@ few lines of linear algebra instead of an object graph.
 ## Component 2 — Twin core (implemented)
 
 ```
-  publisher (celltwin.publisher)                 twin core (celltwin.twincore)
+  publisher (simura.publisher)                 twin core (simura.twincore)
   ┌───────────────────────────┐   MQTT          ┌──────────────────────────────┐
-  │ Simulator.run() generator │   celltwin/     │ ingest loop (aiomqtt)         │
+  │ Simulator.run() generator │   simura/     │ ingest loop (aiomqtt)         │
   │  → envelope per frame     │──telemetry/{id}─▶│   → store.insert_* (asyncpg) │
   │  → retained config once   │──config/{id}────▶│   → live-state cache         │
   └───────────────────────────┘   (QoS 1)        │   → ws broadcast             │
@@ -83,7 +83,7 @@ change to the physics core.
 |----------|----------------|
 | `transport/topics.py` | MQTT topic conventions shared by publisher and twin core. |
 | `publisher/run.py` | Drives a `Simulator`, publishes retained config + per-frame telemetry. Stands in for a real BMS gateway. |
-| `twincore/settings.py` | Env-based (`CELLTWIN_*`) 12-factor config. |
+| `twincore/settings.py` | Env-based (`SIMURA_*`) 12-factor config. |
 | `twincore/store.py` | `TimescaleStore` — asyncpg pool, schema init, writes, and history/latest queries. |
 | `twincore/ingest.py` | MQTT subscribe loop → persist → cache → broadcast, with auto-reconnect. |
 | `twincore/state.py` | In-memory latest frame per system + WebSocket fan-out. |
@@ -120,8 +120,8 @@ the twin core's public API — the same contract real hardware would feed.
 ## Component 4 — Anomaly detection (implemented)
 
 ```
-  detector (celltwin.detect)                    twin core
-  ┌────────────────────────────┐  celltwin/     ┌───────────────────────────┐
+  detector (simura.detect)                    twin core
+  ┌────────────────────────────┐  simura/     ┌───────────────────────────┐
   │ subscribe telemetry/+      │  anomaly/{id}  │ ingest anomaly/+          │
   │ AnomalyEngine per system   │───────────────▶│  → anomaly_summary (TSDB) │
   │  peer-consensus robust z    │  (QoS 1)       │  → anomaly live cache     │
@@ -131,7 +131,7 @@ the twin core's public API — the same contract real hardware would feed.
 
 The detector consumes the same public telemetry stream any client sees and
 produces a derived one — no privileged access, exactly like a real analytics
-service. The **engine is a pure library** (`celltwin/detect/engine.py`), so it is
+service. The **engine is a pure library** (`simura/detect/engine.py`), so it is
 unit-tested against the simulator's healthy/fault scenarios with no infra, and
 Component 5 can reuse it in batch over history.
 
@@ -163,7 +163,7 @@ The `analytics` service now runs both engines per frame:
               (same frame, aligned) ──────┘   (diagnosis + SoH + RUL + safety)
 ```
 
-`celltwin.health` is a pure library, unit-tested against the simulator's five
+`simura.health` is a pure library, unit-tested against the simulator's five
 fault scenarios:
 
 | Piece | Responsibility |
@@ -193,13 +193,13 @@ cache behind `/assessment`.
 ## Component 6 — Real-hardware connectors (implemented)
 
 ```
-  device (real BMS or devsim)     celltwin.connect
+  device (real BMS or devsim)     simura.connect
   ┌───────────────────────┐       ┌──────────────────────────────────────┐
   │ Modbus registers      │──────▶│ read_frame() ─▶ SourceFrame           │
   │ OPC-UA nodes          │──────▶│                    │                  │
   │ foreign MQTT JSON     │──────▶│      build_telemetry(DeviceMapping)   │
   └───────────────────────┘       │                    │                  │
-                                   │            PackTelemetry ─▶ envelope ─┼─▶ celltwin/telemetry/{id}
+                                   │            PackTelemetry ─▶ envelope ─┼─▶ simura/telemetry/{id}
                                    └──────────────────────────────────────┘
 ```
 
@@ -229,7 +229,7 @@ wildcard topics); Component 7 makes the fleet *observable and secured* as a
 whole.
 
 ```
-  live caches (per system)          celltwin.fleet (pure)        API
+  live caches (per system)          simura.fleet (pure)        API
   ┌───────────────────────┐         ┌─────────────────────┐
   │ telemetry / anomaly /  │         │ roll_up_system(...) │
   │ assessment envelopes   │────────▶│   → status + reason │────▶ GET /api/fleet
@@ -249,7 +249,7 @@ plain dicts — the exact envelopes the live caches already hold — so the roll
 unit-tested against the simulator's fault scenarios with no DB or broker, and
 `/api/fleet` is just wiring.
 
-**Auth** is off by default (`CELLTWIN_API_KEY` empty), keeping the demo
+**Auth** is off by default (`SIMURA_API_KEY` empty), keeping the demo
 frictionless. When set, the REST router is guarded by the `require_api_key`
 dependency and the WebSocket self-checks the key on handshake (closing with 1008
 if it's wrong); `/health` is mounted directly on the app so liveness probes stay

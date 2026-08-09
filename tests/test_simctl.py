@@ -1,4 +1,4 @@
-"""Tests for the in-twin simulation manager (celltwin.twincore.simctl).
+"""Tests for the in-twin simulation manager (simura.twincore.simctl).
 
 The manager is MQTT-agnostic -- it takes an injected ``publish`` coroutine -- so
 its whole lifecycle is exercised here with a fake publisher and a real asyncio
@@ -13,8 +13,8 @@ import pytest
 
 import json
 
-from celltwin.builder import SystemSpec, WeatherSpec
-from celltwin.twincore.simctl import PAUSED, RUNNING, STOPPED, SimManager
+from simura.builder import SystemSpec, WeatherSpec
+from simura.twincore.simctl import PAUSED, RUNNING, STOPPED, SimManager
 
 
 class FakePublisher:
@@ -27,11 +27,11 @@ class FakePublisher:
         self.msgs.append((topic, payload, retain))
 
     def telemetry_count(self, system_id: str) -> int:
-        topic = f"celltwin/telemetry/{system_id}"
+        topic = f"simura/telemetry/{system_id}"
         return sum(1 for t, _, _ in self.msgs if t == topic)
 
     def retained_configs(self, system_id: str) -> list[str]:
-        topic = f"celltwin/config/{system_id}"
+        topic = f"simura/config/{system_id}"
         return [p for t, p, r in self.msgs if t == topic and r]
 
 
@@ -134,7 +134,7 @@ def test_managed_sim_with_weather_publishes_conditions():
         frames = [
             json.loads(p)
             for t, p, _ in pub.msgs
-            if t == "celltwin/telemetry/sim-wx"
+            if t == "simura/telemetry/sim-wx"
         ]
         assert frames and frames[0]["telemetry"]["weather"] is not None
         assert "air_temp_c" in frames[0]["telemetry"]["weather"]

@@ -45,7 +45,7 @@ export function imbalanceLevel(imbalanceV: number): Level {
   return "good";
 }
 
-// Anomaly-score thresholds mirror the detector's (celltwin.detect.engine).
+// Anomaly-score thresholds mirror the detector's (simura.detect.engine).
 export function anomalyLevel(score: number): Level {
   if (score >= 6) return "critical";
   if (score >= 4.5) return "serious";

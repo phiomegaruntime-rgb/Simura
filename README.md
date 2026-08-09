@@ -1,11 +1,11 @@
-# CellTwin by Simura
+# Simura
 
 **An open, physics-based digital twin for battery energy storage systems (BESS).**
 
-_CellTwin is the first product of **Simura** — building software digital-twin
-solutions across industries._
+_An open digital-twin platform — expanding to model systems across industries,
+component by component._
 
-CellTwin simulates a battery — from a single cell to a full rack — with real
+Simura simulates a battery — from a single cell to a full rack — with real
 electro-thermal dynamics, cell-to-cell imbalance, and *injectable faults*, then
 streams the same telemetry a real Battery Management System (BMS) would. Clone
 it and you have a living battery on your laptop: no hardware, no lab, no fire.
@@ -17,7 +17,9 @@ it and you have a living battery on your laptop: no hardware, no lab, no fire.
 > connectors: Modbus / OPC-UA / MQTT) are done and tested, as are Component 8
 > (validation against open battery datasets), Component 9 (build your own
 > system), Component 10 (run/pause/resume/delete systems from the fleet), and
-> Component 11 (weather-driven environmental coupling, as a reusable package).
+> Component 11 (weather-driven environmental coupling, as a reusable package), and
+> Component 12 (a reusable **wire** simulation & wiring-planning library, with
+> validation of the conductor model against published DC-resistance standards).
 > Component 7 (fleet rollup + optional API-key auth) is underway. See the
 > [roadmap](docs/roadmap.md).
 
@@ -26,7 +28,7 @@ it and you have a living battery on your laptop: no hardware, no lab, no fire.
 Battery health and safety is one of the most valuable digital-twin use cases in
 energy today — state-of-charge, state-of-health, and thermal-runaway early
 warning are worth real money and prevent real fires. But you can't learn or
-prototype on a real 1 MWh rack. CellTwin gives everyone a physically faithful,
+prototype on a real 1 MWh rack. Simura gives everyone a physically faithful,
 fully controllable battery to build diagnostics, dashboards, and ML on top of.
 
 ## Quick start
@@ -60,12 +62,12 @@ curl "localhost:8000/api/systems/bess-01/history?minutes=10&bucket_s=5"
 # live stream:  ws://localhost:8000/ws/systems/bess-01
 ```
 
-**Optional API key.** Auth is off by default. Set `CELLTWIN_API_KEY` on the twin
+**Optional API key.** Auth is off by default. Set `SIMURA_API_KEY` on the twin
 core and every `/api/*` route and the WebSocket require it (`/health` stays open
 for probes):
 
 ```bash
-curl -H "X-API-Key: $CELLTWIN_API_KEY" localhost:8000/api/fleet
+curl -H "X-API-Key: $SIMURA_API_KEY" localhost:8000/api/fleet
 # or:  Authorization: Bearer <key>   ·   ws://…/ws/systems/bess-01?api_key=<key>
 ```
 
@@ -73,7 +75,7 @@ For the whole stack, set it once — nginx injects the key on the dashboard's
 `/api` + `/ws` upstream hop, so the browser never handles it:
 
 ```bash
-CELLTWIN_API_KEY=your-secret docker compose -f deploy/docker-compose.yml up --build
+SIMURA_API_KEY=your-secret docker compose -f deploy/docker-compose.yml up --build
 ```
 
 To develop the dashboard with hot reload (against a running twin core):
@@ -86,8 +88,8 @@ cd dashboard && npm install && npm run dev   # http://localhost:5173
 code). To try it without hardware, run a simulated Modbus BMS first:
 
 ```bash
-python -m celltwin.connect.devsim --protocol modbus --port 5020
-python -m celltwin.connect --config examples/connectors/modbus.yaml
+python -m simura.connect.devsim --protocol modbus --port 5020
+python -m simura.connect --config examples/connectors/modbus.yaml
 ```
 
 Connectors for **Modbus TCP**, **OPC-UA**, and an **MQTT bridge** (foreign JSON
@@ -96,7 +98,7 @@ and the simulator identically. The default `docker compose` stack includes a
 Modbus device + connector as the `bess-modbus-01` system.
 
 ```python
-from celltwin.sim import Simulator, PackConfig, ChargeDischargeCycle, InternalShort
+from simura.sim import Simulator, PackConfig, ChargeDischargeCycle, InternalShort
 
 sim = Simulator(
     PackConfig(series=12, parallel=2, initial_soc=0.9),   # 12S2P NMC pack
@@ -109,13 +111,13 @@ for telemetry in sim.run():          # one PackTelemetry per timestep
 
 **Validate against real battery data** — check the physics against open,
 publicly-licensed datasets (NASA, Oxford, CALCE, Sandia, Stanford–MIT–TRI, …).
-CellTwin ships a *catalog* (with licenses + citations) and format loaders, plus a
+Simura ships a *catalog* (with licenses + citations) and format loaders, plus a
 bundled **synthetic** sample so it runs offline:
 
 ```bash
-python -m celltwin.validate --list                       # browse the catalog
-python -m celltwin.validate --dataset demo-synthetic --fit   # offline demo
-python -m celltwin.validate --dataset oxford-degradation --file cell1.mat --fit
+python -m simura.validate --list                       # browse the catalog
+python -m simura.validate --dataset demo-synthetic --fit   # offline demo
+python -m simura.validate --dataset oxford-degradation --file cell1.mat --fit
 ```
 
 The right OCV curve is picked per chemistry (NMC / LFP / LCO / NCA). Or upload your
@@ -126,9 +128,9 @@ measured-vs-model overlay in the browser.
 profile, faults), preview it offline, then stream it into the twin:
 
 ```bash
-python -m celltwin.builder --example > my-system.json   # edit it (or use the Build tab)
-python -m celltwin.builder --preview my-system.json      # SoC, peak temp, energy, safety
-python -m celltwin.publisher --spec my-system.json --speed 10 --loop   # go live
+python -m simura.builder --example > my-system.json   # edit it (or use the Build tab)
+python -m simura.builder --preview my-system.json      # SoC, peak temp, energy, safety
+python -m simura.publisher --spec my-system.json --speed 10 --loop   # go live
 ```
 
 ## What's modeled
@@ -156,7 +158,7 @@ python -m celltwin.publisher --spec my-system.json --speed 10 --loop   # go live
   ingest-only and Delete-able. Choose sim or real-time per system.
 - **Weather** — drive a pack's ambient temperature, wind cooling and solar heat
   load from real ([Open-Meteo](https://open-meteo.com), no API key) or synthetic
-  weather. Built as a **reusable, battery-agnostic package** (`celltwin.weather`).
+  weather. Built as a **reusable, battery-agnostic package** (`simura.weather`).
   See [docs/weather.md](docs/weather.md).
 
 ## Documentation

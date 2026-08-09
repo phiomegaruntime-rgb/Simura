@@ -1,9 +1,9 @@
-site_name: CellTwin
-site_description: An open, physics-based digital twin for battery energy storage systems (BESS). A Simura product.
-copyright: "&copy; 2026 Simura &middot; CellTwin is open source under Apache-2.0"
+site_name: Simura
+site_description: An open, physics-based digital twin for battery energy storage systems (BESS).
+copyright: "&copy; 2026 Simura &middot; Simura is open source under Apache-2.0"
 # TODO: point these at the real repository once it's published.
-repo_url: https://github.com/celltwin/celltwin
-repo_name: celltwin/celltwin
+repo_url: https://github.com/simura/simura
+repo_name: simura/simura
 edit_uri: edit/main/docs/
 
 theme:
@@ -54,6 +54,7 @@ nav:
       - Validation: validation.md
       - System builder: builder.md
       - Weather: weather.md
+      - Wires: wires.md
       - Dashboard: dashboard.md
   - Project:
       - Roadmap: roadmap.md

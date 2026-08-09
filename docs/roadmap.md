@@ -1,4 +1,4 @@
-# CellTwin Roadmap
+# Simura Roadmap
 
 The project is built one component at a time. Each component is independently
 useful and leaves the repo in a runnable, tested state.
@@ -59,11 +59,11 @@ status colors, absolute thermal scale, per-metric ramps).
 
 Flag cells misbehaving *before* they cross any absolute limit.
 
-- [x] `celltwin.detect` — a pure, unit-tested library: **peer-consensus** robust
+- [x] `simura.detect` — a pure, unit-tested library: **peer-consensus** robust
   z-scores (median + MAD across the pack, per metric), combined into a directional
   anomaly score and smoothed with an EWMA so only sustained deviation flags. No
   training data, no per-asset tuning.
-- [x] `detector` service subscribes to telemetry, publishes to `celltwin/anomaly/{id}`.
+- [x] `detector` service subscribes to telemetry, publishes to `simura/anomaly/{id}`.
 - [x] Twin core ingests anomaly frames: `anomaly_summary` hypertable, live cache,
   `/api/systems/{id}/anomaly` + `/anomaly/history`, WebSocket broadcast.
 - [x] Dashboard: anomaly heatmap view + per-cell badges, anomaly panel, score
@@ -80,7 +80,7 @@ simulator's healthy vs. fault scenarios.
 The capstone intelligence: not just *that* something is wrong, but *what*, *how
 healthy*, *how long*, and *how dangerous*.
 
-- [x] `celltwin.health` — a pure, unit-tested library:
+- [x] `simura.health` — a pure, unit-tested library:
   - **Diagnosis** by fault-fingerprint matching over the anomaly z-scores +
     health features: tells internal short / cooling fault / resistance growth /
     sensor fault / thermal runaway apart, with a confidence and a plain-English
@@ -89,7 +89,7 @@ healthy*, *how long*, and *how dangerous*.
     resistance growth shows up and a short/sensor fault correctly does not.
   - **RUL** as acute time-to-critical from the smoothed heating rate.
   - **Safety state** (nominal / warning / **alarm**) with a runaway alarm.
-- [x] The `analytics` service publishes assessments to `celltwin/assessment/{id}`
+- [x] The `analytics` service publishes assessments to `simura/assessment/{id}`
   on the same frame as the anomaly (aligned features).
 - [x] Twin core: `assessment_summary` hypertable, live cache, `/assessment` +
   `/assessment/history`, WebSocket broadcast.
@@ -107,14 +107,14 @@ Bring real BMS data in over industrial protocols, producing the *same* telemetry
 envelope the simulator does — so the whole twin/analytics/dashboard stack works
 on real data unchanged.
 
-- [x] `celltwin.connect` — a protocol-agnostic **decode** core (`SourceFrame` +
+- [x] `simura.connect` — a protocol-agnostic **decode** core (`SourceFrame` +
   `DeviceMapping` → telemetry) that handles unit scaling, per-module→per-cell
   temperature expansion, and deriving the per-cell current/SoC a real BMS does
   not report.
 - [x] Connectors: **Modbus TCP** (register map), **OPC-UA** (node ids), and an
   **MQTT bridge** (adapt a foreign JSON schema via dotted paths). Config-file
   driven (`examples/connectors/*.yaml`), no code to point at a device.
-- [x] `celltwin.connect.devsim` — simulated Modbus/OPC-UA BMS devices (the
+- [x] `simura.connect.devsim` — simulated Modbus/OPC-UA BMS devices (the
   hardware analog of the physics simulator) for demos and tests.
 - [x] Added to the stack: a `device-sim` (Modbus) + `modbus-connector` feeding a
   second system, `bess-modbus-01`.
@@ -134,19 +134,19 @@ with sensor granularity.
 Operate a *fleet* of twins, not one pack at a time, and start hardening for
 real deployment.
 
-- [x] `celltwin.fleet` — a pure, unit-tested rollup library: condense every
+- [x] `simura.fleet` — a pure, unit-tested rollup library: condense every
   system's latest telemetry/anomaly/assessment into one status row (overall
   level + plain-English reason, mirroring the single-system banner), with
   timestamp-based liveness. Fleet summary: counts by status, worst system,
   aggregate power, safety-alarm count.
 - [x] `/api/fleet` — one call returns the whole fleet, worst-first. Thin wiring
   over `build_fleet`; all logic stays in the tested library.
-- [x] **Optional API-key auth** (`CELLTWIN_API_KEY`): off by default so the demo
+- [x] **Optional API-key auth** (`SIMURA_API_KEY`): off by default so the demo
   stays frictionless; when set, REST + WebSocket require the key (Bearer /
   `X-API-Key` / `?api_key=`), while `/health` stays open for liveness probes.
   The dashboard's nginx injects the key on the `/api` + `/ws` upstream hop
   (envsubst-templated config), so the browser never handles it and the whole
-  stack works secured with `CELLTWIN_API_KEY=… docker compose up`.
+  stack works secured with `SIMURA_API_KEY=… docker compose up`.
 - [x] Dashboard **fleet overview**: a status-tiled grid of all systems that
   drills into the existing per-system dashboard; `bess-02` (healthy) added to
   the stack so the fleet shows a real healthy/faulted/Modbus mix.
@@ -155,7 +155,7 @@ real deployment.
 - [x] **Expanded examples**: full analytics pipeline offline (`run_analytics.py`),
   a custom duty-cycle profile (`custom_profile.py`), a chemistry swap
   (`ocv_chemistry.py`, NMC vs LFP), and example/connector READMEs. Exposed
-  `make_ocv` on the public `celltwin.sim` API.
+  `make_ocv` on the public `simura.sim` API.
 
 **Verified:** the fleet rollup is unit-tested against hand-built envelopes and
 the simulator's fault scenarios (internal short → critical, healthy → good), the
@@ -170,14 +170,14 @@ example runs, and `mkdocs build --strict` is clean.
 Ground the twin in reality: check the physics model against **open,
 publicly-licensed** battery datasets instead of taking it on faith.
 
-- [x] `celltwin.validate` — a pure, unit-tested library:
+- [x] `simura.validate` — a pure, unit-tested library:
   - **Catalog** of open datasets (NASA PCoE, Oxford, CALCE, Sandia,
     Stanford–MIT–TRI, RWTH Aachen, HNEI) with license, citation, and
-    "what it validates" metadata. CellTwin redistributes **no** dataset bytes —
+    "what it validates" metadata. Simura redistributes **no** dataset bytes —
     only a directory pointing at each source.
   - **Loaders** normalize a user's own download (`.mat` via SciPy, or CSV) into
     one `ReferenceRun` (discharge-positive, matching the sim).
-  - **Engine** replays the measured current through CellTwin's own 1×1 cell model
+  - **Engine** replays the measured current through Simura's own 1×1 cell model
     and reports terminal-voltage error (RMSE/MAE/max/bias), with an optional
     best-fit R0/SoC scan — a single source of physics truth (reuses `BatteryPack`).
 - [x] A tiny, clearly-labelled **synthetic** sample bundled so the CLI, tests, and
@@ -188,7 +188,7 @@ publicly-licensed** battery datasets instead of taking it on faith.
 - [x] Dashboard **Validation** view: selectable dataset cards (license badge,
   copy-citation, copy-CLI-command) + a measured-vs-model voltage overlay and
   RMSE/MAE/bias tiles.
-- [x] CLI (`python -m celltwin.validate`), `examples/validate_demo.py`, and docs.
+- [x] CLI (`python -m simura.validate`), `examples/validate_demo.py`, and docs.
 
 **Verified:** on the synthetic sample (true R0 = 25 mΩ), the nominal model
 (R0 = 20 mΩ) gives RMSE 19.6 mV; fitting recovers R0 = 25 mΩ and drops RMSE to
@@ -203,10 +203,10 @@ publicly-licensed** battery datasets instead of taking it on faith.
 
 Let users design and test their own BESS, not just the built-in scenarios.
 
-- [x] `celltwin.builder` — a pure, unit-tested library: a JSON-serializable
+- [x] `simura.builder` — a pure, unit-tested library: a JSON-serializable
   `SystemSpec` (chemistry, cell params, topology, load profile, faults, sim
   settings), `validate_spec` (a list of problems, not a crash), `build_simulator`
-  (reuses `celltwin.sim` and swaps in the chemistry's OCV curve), and `preview`
+  (reuses `simura.sim` and swaps in the chemistry's OCV curve), and `preview`
   (runs the spec **offline** — no MQTT, no DB — into a summary: final/min SoC,
   voltage window, peak temp, energy throughput, whether the temp limit was crossed
   and when, plus sparklines).
@@ -215,7 +215,7 @@ Let users design and test their own BESS, not just the built-in scenarios.
   list if invalid). Pure compute — no process management in the twin core.
 - [x] Publisher **`--spec my.json`** builds exactly the previewed simulator and
   streams it live, so a custom system joins the fleet/analytics/dashboard like any
-  other. `python -m celltwin.builder --example|--validate|--preview` CLI too.
+  other. `python -m simura.builder --example|--validate|--preview` CLI too.
 - [x] Dashboard **Build** view: a form over the spec (chemistry, topology, profile,
   faults), an offline **Preview** with summary tiles + SoC/temp/voltage sparklines,
   and **Export spec JSON** + **Copy go-live command**.
@@ -233,7 +233,7 @@ CLI run; the dashboard builds clean.
 
 Control systems from the app, and choose where their data comes from.
 
-- [x] The twin core can **run simulations itself** (`celltwin.twincore.simctl.SimManager`):
+- [x] The twin core can **run simulations itself** (`simura.twincore.simctl.SimManager`):
   a Component-9 `SystemSpec` is run in-process and published to MQTT exactly like
   the external publisher, so it flows through ingest → store → analytics → fleet
   unchanged — but the twin core holds the task handle. The manager is MQTT-agnostic
@@ -262,12 +262,12 @@ bad spec, DELETE purge); pause/resume/delete confirmed live in the rebuilt stack
 
 Make the environment part of the simulation — and do it reusably.
 
-- [x] **Standalone, domain-agnostic package** `celltwin.weather` (zero back-deps on
+- [x] **Standalone, domain-agnostic package** `simura.weather` (zero back-deps on
   the simulator): a `WeatherSample` contract + a one-method `WeatherProvider`
   interface, with `Static` / `Synthetic` (deterministic diurnal, offline) /
   `CsvReplay` / `OpenMeteo` (live, **no API key**) providers, plus a `CachedProvider`
   that caches and **falls back offline on any error**. Declarative `build_provider`.
-- [x] **Physics coupling** (`celltwin.sim.environment`): maps a weather sample onto
+- [x] **Physics coupling** (`simura.sim.environment`): maps a weather sample onto
   three levers the thermal model already exposes — air temperature → ambient,
   wind → convective cooling, solar → per-cell heat load. `BatteryPack.step` gains an
   optional `ambient_c`; the `Simulator` queries the provider each step and stamps the
@@ -293,3 +293,76 @@ pass; dashboard `npm run build` and `mkdocs build --strict` clean.
 ### Backlog
 - Persist weather to history (needs a schema column); calibrate coupling
   coefficients against a real enclosure; async weather fetch client.
+
+## Component 12 — Wire simulation & wiring planning ✅ (v0.12)
+
+Start growing Simura beyond the battery, toward a platform where users assemble
+a machine from real electrical (and eventually mechanical) parts. The first such
+part is the **wire**: pick from real wire types, simulate a conductor's
+electro-thermal behaviour under load, and test wiring logic and planning.
+
+- [x] **Standalone, domain-agnostic package** `simura.wires` (zero back-deps on
+  the battery model, exactly like `simura.weather`): it knows conductors and
+  electrical physics, not batteries. A `WireSpec`/`Wire` config-vs-state split, a
+  `WireTelemetry` contract, and a `WireSimulator` generator — the same shapes as
+  the battery `sim` package. Physics: `R = rho(T)·L/A` with a temperature
+  coefficient, `ΔV = I·R`, `P = I²R`, and a lumped thermal node
+  `dT/dt = (I²R − k_cool·(T−T_amb))/C_th` whose capacity/cooling default to
+  geometry-based estimates.
+- [x] **A catalog of real parts** (`catalog.py`): conductor materials (copper /
+  aluminium / tinned copper), an AWG↔area table, insulation classes with
+  temperature ratings, and curated `WireType`s with reference ampacity — the
+  wiring analog of the OCV chemistry tables, honestly labelled as reference-only.
+- [x] **Wiring logic & planning** (`planning.py`): `evaluate_run` checks a run
+  against ampacity, voltage drop and insulation temperature (a list of problems,
+  never a crash); `recommend_gauge` sizes the smallest catalog wire that
+  satisfies every constraint. `round_trip` accounts for the two-conductor path.
+- [x] **Multi-node network** (`network.py`): connect nodes with wire segments, fix
+  a source voltage, draw loads, and solve the DC operating point by nodal analysis
+  (`numpy.linalg`), iterating resistance↔temperature to a fixed point. Per-segment
+  current / drop / loss / temperature / utilisation + a rolled-up problem list.
+- [x] **Faults** (`faults.py`): the same accumulator pattern as the battery side —
+  resistance growth (corrosion), contact resistance (loose joint), conductor
+  damage (nicked strands), insulation degradation, and ground-fault leakage.
+- [x] **Validation** (`validation/`): the wiring counterpart to the battery
+  validation pipeline — check the conductor model against **published DC-resistance
+  standards** (annealed copper at 20 °C / 75 °C, hard-drawn aluminium) or a user's
+  measured-resistance CSV. Replays each gauge through the same `Wire` the twin uses
+  and reports the per-gauge percent error (RMSE / MAE / max / mean-bias). The
+  reference tables are computed offline from the standard resistivity and nominal
+  AWG area (`R = ρ·L/A`), so the small, honest copper bias (~2.5 %, pure vs annealed
+  copper) falls straight out.
+- [x] **Declarative builders**, a CLI (`python -m simura.wires --catalog |
+  --evaluate | --recommend | --network | --simulate`, plus
+  `python -m simura.wires.validation --list | --standard <id>`), two examples
+  (`wire_planning.py`, `wire_thermal.py`), and a docs page.
+
+**Verified:** `test_wires` (36) covers AWG area vs the standard table, `R = ρL/A`
+against the textbook 12 AWG value and its temperature dependence, thermal
+convergence to `ΔT = I²R/k_cool`, spec resolution, planning (over-ampacity, drop
+limit, smallest-adequate gauge sizing), all fault types, telemetry round-trip, and
+the network solve (a 2-node run's self-consistency, a branch conserving current
+per KCL with monotonically dropping node voltages). `test_wire_validation` (11)
+covers the standards catalog, the expected copper/aluminium resistivity bias, a
+self-consistency zero-error check, overlay alignment, and the upload-CSV loader
+(unit conversion, missing-column and non-standard-gauge handling). Both examples
+run and `mkdocs build --strict` stays clean.
+
+### Backlog
+- AC / reactance, temperature-derated catalog ampacity tables, bundle/conduit
+  grouping factors, and mechanical parts (a future component family).
+
+### Dashboard slice ✅
+
+- [x] **Wiring planner** view: check a run / recommend a gauge + the wire catalog,
+  over `/api/wires/{catalog,evaluate,recommend,network}`.
+- [x] **Validation** view: validate the conductor model against a bundled standard
+  or an uploaded CSV, over `/api/wires/validation/{standards,run,upload}`.
+- All routes are pure compute (no MQTT, no DB), guarded by the same optional API
+  key as the rest of `/api/*`. The dashboard opens on a landing of component cards
+  (Batteries / Wires); each card scopes the header nav to that component.
+
+> **Removed (v0.15):** the earlier *energy-flow systems* component (`simura.energyflow`
+> — cells + wires coupled by nodal analysis) and the *DC-motor* mechanical part
+> that built on it were removed from the project, along with their dashboard views,
+> API endpoints, examples and docs.

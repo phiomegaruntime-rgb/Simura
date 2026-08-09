@@ -1,4 +1,4 @@
-# Build and deploy the CellTwin docs site to GitHub Pages.
+# Build and deploy the Simura docs site to GitHub Pages.
 # Enable Pages for the repo (Settings -> Pages -> Source: GitHub Actions) first.
 name: docs
 

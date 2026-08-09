@@ -1,5 +1,5 @@
 # Bridge a BMS that already publishes MQTT in its own JSON schema.
-#   python -m celltwin.connect --config examples/connectors/mqtt.yaml
+#   python -m simura.connect --config examples/connectors/mqtt.yaml
 #
 # Example foreign payload on topic "plant/rackA/bms":
 #   {"bms": {"current": 20.0, "soc": 78.5,

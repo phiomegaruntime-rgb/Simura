@@ -19,7 +19,7 @@ python examples/run_analytics.py --scenario short
 
 It prints a timeline and a final assessment that *names the fault* while the pack
 is still well below its temperature limit. More demos in the
-[examples README](https://github.com/celltwin/celltwin/tree/main/examples).
+[examples README](https://github.com/simura/simura/tree/main/examples).
 
 ## The full twin
 
@@ -62,33 +62,33 @@ Point a connector at a device with a config file — no code. To try it without
 hardware, run a simulated Modbus BMS first:
 
 ```bash
-python -m celltwin.connect.devsim --protocol modbus --port 5020
-python -m celltwin.connect --config examples/connectors/modbus.yaml
+python -m simura.connect.devsim --protocol modbus --port 5020
+python -m simura.connect --config examples/connectors/modbus.yaml
 ```
 
 See [Hardware connectors](connectors.md) for the full recipe list.
 
 ## Optional API key
 
-Auth is off by default. Set `CELLTWIN_API_KEY` on the twin core and every
+Auth is off by default. Set `SIMURA_API_KEY` on the twin core and every
 `/api/*` route and the WebSocket require it (`/health` stays open for probes):
 
 ```bash
-curl -H "X-API-Key: $CELLTWIN_API_KEY" localhost:8000/api/fleet
+curl -H "X-API-Key: $SIMURA_API_KEY" localhost:8000/api/fleet
 ```
 
 For the full stack, set it once — nginx injects the key so the dashboard keeps
 working while direct access to `:8000` requires it:
 
 ```bash
-CELLTWIN_API_KEY=your-secret docker compose -f deploy/docker-compose.yml up --build
+SIMURA_API_KEY=your-secret docker compose -f deploy/docker-compose.yml up --build
 ```
 
 Details in [Twin core & API](twin-api.md#authentication).
 
 ## Install extras
 
-CellTwin's dependencies are grouped so you install only what you need:
+Simura's dependencies are grouped so you install only what you need:
 
 ```bash
 pip install -e ".[dev]"               # simulator + pytest

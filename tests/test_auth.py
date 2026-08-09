@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from celltwin.twincore.auth import extract_key, is_authorized, require_api_key
+from simura.twincore.auth import extract_key, is_authorized, require_api_key
 from fastapi import HTTPException
 
 

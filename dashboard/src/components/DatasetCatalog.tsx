@@ -7,7 +7,7 @@ interface Props {
   onSelect: (id: string) => void;
 }
 
-// The selectable catalog of open battery datasets. CellTwin ships no real data —
+// The selectable catalog of open battery datasets. Simura ships no real data —
 // each card links out to the source and shows the exact CLI command to validate
 // that dataset against your own download.
 export default function DatasetCatalog({ datasets, selected, onSelect }: Props) {
@@ -36,8 +36,8 @@ function DatasetCard({
 }) {
   const accent = spec.synthetic ? "#9085e9" : "#3987e5";
   const cli = spec.synthetic
-    ? `python -m celltwin.validate --dataset ${spec.id}`
-    : `python -m celltwin.validate --dataset ${spec.id} --file <your-download>`;
+    ? `python -m simura.validate --dataset ${spec.id}`
+    : `python -m simura.validate --dataset ${spec.id} --file <your-download>`;
 
   return (
     <button

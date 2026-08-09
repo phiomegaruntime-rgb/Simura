@@ -1,7 +1,7 @@
 """Design your own battery system, preview it offline, and get the go-live command.
 
 The system builder lets you describe a battery system as a plain
-:class:`~celltwin.builder.spec.SystemSpec` -- chemistry, topology, load profile,
+:class:`~simura.builder.spec.SystemSpec` -- chemistry, topology, load profile,
 faults, sim settings -- then preview it *offline* (no MQTT, no database) to see
 how it behaves before streaming it into the twin. This example builds a custom
 LFP pack with an injected internal short, previews it, writes the spec to JSON,
@@ -21,7 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from celltwin.builder import (  # noqa: E402
+from simura.builder import (  # noqa: E402
     FaultSpec,
     ProfileSpec,
     SystemSpec,
@@ -69,7 +69,7 @@ def main() -> None:
     out = Path("my-lfp-rack.json")
     out.write_text(json.dumps(spec.to_dict(), indent=2), encoding="utf-8")
     print(f"\nWrote {out}. Stream it live into a running twin with:")
-    print(f"  python -m celltwin.publisher --spec {out} --speed 10 --loop")
+    print(f"  python -m simura.publisher --spec {out} --speed 10 --loop")
 
 
 if __name__ == "__main__":

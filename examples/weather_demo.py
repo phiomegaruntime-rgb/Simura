@@ -1,8 +1,8 @@
 """Weather coupling demo: the same pack, run under different environments.
 
-Shows how :mod:`celltwin.weather` drives the pack's ambient temperature, wind
+Shows how :mod:`simura.weather` drives the pack's ambient temperature, wind
 cooling, and solar heat load through the environmental coupling
-(:mod:`celltwin.sim.environment`). A resting pack simply drifts toward whatever
+(:mod:`simura.sim.environment`). A resting pack simply drifts toward whatever
 ambient the weather source dictates -- warm in the afternoon, cold before dawn.
 
 Fully offline and deterministic (synthetic diurnal model). Run::
@@ -15,9 +15,9 @@ from __future__ import annotations
 import calendar
 import sys
 
-from celltwin.builder import ProfileSpec, SystemSpec, WeatherSpec, preview
-from celltwin.sim import ConstantCurrent, PackConfig, SimConfig, Simulator
-from celltwin.weather import SyntheticProvider
+from simura.builder import ProfileSpec, SystemSpec, WeatherSpec, preview
+from simura.sim import ConstantCurrent, PackConfig, SimConfig, Simulator
+from simura.weather import SyntheticProvider
 
 
 def _reconfigure_stdout() -> None:
@@ -77,7 +77,7 @@ def main() -> int:
 
     print("\nGo live with real weather for a location (Open-Meteo, no API key):")
     print("  spec.weather = WeatherSpec('open_meteo', {'latitude': 34.05, 'longitude': -118.24})")
-    print("  python -m celltwin.publisher --spec wx-lfp-16s4p.json --speed 60 --loop")
+    print("  python -m simura.publisher --spec wx-lfp-16s4p.json --speed 60 --loop")
     return 0
 
 

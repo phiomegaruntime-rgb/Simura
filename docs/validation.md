@@ -1,12 +1,12 @@
 # Validation
 
 A digital twin is only trustworthy if its physics matches real batteries.
-`celltwin.validate` lets you check the model against **open, publicly-licensed
-battery datasets**: it replays a dataset's measured current through CellTwin's own
+`simura.validate` lets you check the model against **open, publicly-licensed
+battery datasets**: it replays a dataset's measured current through Simura's own
 cell model and reports how closely the predicted terminal voltage tracks the
 measured one.
 
-CellTwin does **not** redistribute any dataset — the files are large and each
+Simura does **not** redistribute any dataset — the files are large and each
 carries its own license. What ships is a *catalog* (where to find each dataset,
 its license, how to cite it, and which loader parses its format) plus a tiny,
 clearly-labelled **synthetic** sample so the whole pipeline runs offline.
@@ -14,13 +14,13 @@ clearly-labelled **synthetic** sample so the whole pipeline runs offline.
 ## The catalog
 
 ```bash
-python -m celltwin.validate --list
+python -m simura.validate --list
 ```
 
 | Dataset | Institution | Chemistry | License |
 |---------|-------------|-----------|---------|
-| `demo-synthetic` | CellTwin (generated) | NMC | Apache-2.0 — **synthetic, not real data** |
-| `demo-synthetic-lfp` | CellTwin (generated) | LFP | Apache-2.0 — **synthetic, not real data** |
+| `demo-synthetic` | Simura (generated) | NMC | Apache-2.0 — **synthetic, not real data** |
+| `demo-synthetic-lfp` | Simura (generated) | LFP | Apache-2.0 — **synthetic, not real data** |
 | `nasa-pcoe` | NASA Ames PCoE | LCO | US Gov public domain |
 | `oxford-degradation` | University of Oxford | NMC/LCO | CC-BY-4.0 |
 | `calce` | University of Maryland (CALCE) | LCO | Research use |
@@ -37,7 +37,7 @@ python -m celltwin.validate --list
 ## Validate the synthetic demo (offline, no download)
 
 ```bash
-python -m celltwin.validate --dataset demo-synthetic --fit
+python -m simura.validate --dataset demo-synthetic --fit
 python examples/validate_demo.py
 ```
 
@@ -59,17 +59,17 @@ The sample was generated at 25 mΩ; fitting recovers it and drops the error to t
 Download a dataset from its homepage, then point the matching loader at your file:
 
 ```bash
-python -m celltwin.validate --dataset oxford-degradation --file cell1.mat --fit
+python -m simura.validate --dataset oxford-degradation --file cell1.mat --fit
 ```
 
-`.mat` datasets (NASA, Oxford) need SciPy: `pip install celltwin[validate]`.
+`.mat` datasets (NASA, Oxford) need SciPy: `pip install simura[validate]`.
 For any dataset, exporting a single cell to a CSV with `time_s,current_a,voltage_v`
 columns lets you use the generic loader. See the loader docstrings in
-[`loaders.py`](https://github.com/celltwin/celltwin/blob/main/src/celltwin/validate/loaders.py)
+[`loaders.py`](https://github.com/simura/simura/blob/main/src/simura/validate/loaders.py)
 for each format's exact fields, and the library API:
 
 ```python
-from celltwin.validate import get_dataset, loader_for, validate_run
+from simura.validate import get_dataset, loader_for, validate_run
 
 spec = get_dataset("oxford-degradation")
 ref = loader_for(spec)("cell1.mat")     # -> normalized ReferenceRun
@@ -88,7 +88,7 @@ validates against the LFP curve rather than being penalized by the wrong one.
 The bundled `demo-synthetic-lfp` sample makes the point:
 
 ```bash
-python -m celltwin.validate --dataset demo-synthetic-lfp --fit
+python -m simura.validate --dataset demo-synthetic-lfp --fit
 ```
 
 | OCV curve used | RMSE (nominal) | RMSE (best-fit) |
@@ -116,9 +116,9 @@ copy-citation, copy-CLI-command) and lets you validate data three ways:
   is discarded after the run (it is never persisted).
 - **Run synthetic demo** — no download handy? Validate a bundled synthetic sample
   matched to the selected dataset's chemistry, just to see the pipeline work.
-- **CLI** — each card copies the exact `python -m celltwin.validate` command.
+- **CLI** — each card copies the exact `python -m simura.validate` command.
 
-Upload size is capped by `CELLTWIN_VALIDATION_MAX_UPLOAD_MB` (default 25). The
+Upload size is capped by `SIMURA_VALIDATION_MAX_UPLOAD_MB` (default 25). The
 default twin-core image is **CSV-only** to stay lean; parsing `.mat` files
 (NASA / Oxford) is opt-in — rebuild the image with the `validate` extra
 (`pip install ".[server,connect,validate]"`, which pulls in SciPy). A `.mat`

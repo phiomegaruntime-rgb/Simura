@@ -1,7 +1,7 @@
 // Placeholder locations — update these when the repo / docs site go public.
 // (Kept in one place so it's a one-line change per link.)
-const DOCS_URL = "https://celltwin.github.io";
-const REPO_URL = "https://github.com/simura/celltwin";
+const DOCS_URL = "https://simura.github.io";
+const REPO_URL = "https://github.com/simura/simura";
 
 const LINKS: { label: string; href: string }[] = [
   { label: "Documentation", href: DOCS_URL },
@@ -17,10 +17,8 @@ export default function Footer() {
     <footer className="border-t border-hairline bg-surface px-6 py-4 text-xs text-muted">
       <div className="max-w-[1400px] mx-auto flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
         <div className="flex items-center gap-1.5">
-          <span className="text-ink-secondary font-medium">CellTwin</span>
-          <span>— a</span>
           <span className="text-ink-secondary font-semibold">Simura</span>
-          <span>product</span>
+          <span>— an open digital-twin platform</span>
           <span className="text-muted">·</span>
           <span>© {year} Simura</span>
           <span className="text-muted">·</span>

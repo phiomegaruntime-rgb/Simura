@@ -1,6 +1,6 @@
-# Contributing to CellTwin
+# Contributing to Simura
 
-Thanks for your interest! CellTwin is an open, physics-based digital twin for
+Thanks for your interest! Simura is an open, physics-based digital twin for
 battery energy storage systems (BESS). It's built to be approachable: the core
 libraries are pure Python + NumPy and unit-tested with no infrastructure, so you
 can be productive without a broker, a database, or real hardware.
@@ -10,7 +10,7 @@ Be kind, assume good faith, and keep discussion technical.
 
 ## How the project is built
 
-CellTwin is built **one component at a time**, and each component leaves the repo
+Simura is built **one component at a time**, and each component leaves the repo
 in a runnable, tested state (see the [roadmap](docs/roadmap.md)). Two principles
 shape almost every design decision — please keep them in mind when contributing:
 
@@ -82,11 +82,11 @@ The simulator's extension points are designed to be easy first contributions —
 each one slots into an existing [example](examples/README.md):
 
 - **New cell chemistry.** Add a measured OCV–SoC table (LFP, NCA, …) alongside
-  `NMC_OCV_TABLE` in [`src/celltwin/sim/ocv.py`](src/celltwin/sim/ocv.py). See
+  `NMC_OCV_TABLE` in [`src/simura/sim/ocv.py`](src/simura/sim/ocv.py). See
   [`examples/ocv_chemistry.py`](examples/ocv_chemistry.py).
 - **New load profile** from a real duty cycle — anything with
   `current(t, v) -> amps`. See [`examples/custom_profile.py`](examples/custom_profile.py).
-- **New fault type** in [`src/celltwin/sim/faults.py`](src/celltwin/sim/faults.py)
+- **New fault type** in [`src/simura/sim/faults.py`](src/simura/sim/faults.py)
   (subclass `Fault`, contribute to the `FaultEffect` accumulator). If it has a
   distinct signature, add a fingerprint to the diagnosis engine and a test.
 - **New connector** (CAN bus, Modbus RTU) — implement a `SourceFrame` producer;
@@ -120,5 +120,5 @@ Bigger items live on the [roadmap](docs/roadmap.md).
 
 ## License
 
-CellTwin is licensed under **Apache-2.0**. By contributing, you agree that your
+Simura is licensed under **Apache-2.0**. By contributing, you agree that your
 contributions are licensed under the same terms.

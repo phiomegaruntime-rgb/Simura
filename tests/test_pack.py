@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from celltwin.sim import (
+from simura.sim import (
     CoolingFault,
     InternalShort,
     PackConfig,
@@ -17,8 +17,8 @@ from celltwin.sim import (
     Simulator,
     ConstantCurrent,
 )
-from celltwin.sim.faults import FaultEffect, accumulate
-from celltwin.sim.pack import BatteryPack
+from simura.sim.faults import FaultEffect, accumulate
+from simura.sim.pack import BatteryPack
 
 
 def _run(profile, faults=None, duration=600.0, **pack_kw):

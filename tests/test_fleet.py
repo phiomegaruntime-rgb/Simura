@@ -1,4 +1,4 @@
-"""Tests for the fleet rollup (celltwin.fleet).
+"""Tests for the fleet rollup (simura.fleet).
 
 Pure-library, driven by hand-built envelopes for the edge cases and by the
 simulator + detection/assessment engines for a realistic end-to-end rollup --
@@ -9,10 +9,10 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from celltwin.detect import AnomalyEngine
-from celltwin.fleet import build_fleet, roll_up_system
-from celltwin.health import AssessmentEngine
-from celltwin.sim import (
+from simura.detect import AnomalyEngine
+from simura.fleet import build_fleet, roll_up_system
+from simura.health import AssessmentEngine
+from simura.sim import (
     ChargeDischargeCycle,
     InternalShort,
     PackConfig,

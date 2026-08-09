@@ -1,4 +1,4 @@
-"""Tests for the validation library (celltwin.validate).
+"""Tests for the validation library (simura.validate).
 
 Pure-library, offline: everything runs against the bundled *synthetic* sample
 (``demo-synthetic``) so no dataset download and no SciPy are required.
@@ -9,7 +9,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from celltwin.validate import (
+from simura.validate import (
     ReferenceRun,
     ValidationReport,
     datasets_for_chemistry,
@@ -154,7 +154,7 @@ def test_report_to_dict_is_json_shaped():
 
 # -- chemistry-specific OCV -------------------------------------------------
 def test_ocv_table_registry_and_key_resolution():
-    from celltwin.sim import OCV_TABLES, chemistry_key_for, ocv_table_for
+    from simura.sim import OCV_TABLES, chemistry_key_for, ocv_table_for
 
     assert set(["NMC", "LFP", "LCO", "NCA"]).issubset(OCV_TABLES)
     # compound labels resolve to the first recognized (primary) chemistry.
@@ -168,7 +168,7 @@ def test_ocv_table_registry_and_key_resolution():
 
 def test_ocv_tables_are_strictly_increasing():
     # inverse SoC-from-OCV needs strictly increasing OCV; also physically sane.
-    from celltwin.sim import OCV_TABLES
+    from simura.sim import OCV_TABLES
 
     for name, table in OCV_TABLES.items():
         socs = [s for s, _ in table]
@@ -196,7 +196,7 @@ def test_lfp_validates_clean_with_lfp_curve_bad_with_nmc():
 
 
 def test_synthetic_for_matches_chemistry():
-    from celltwin.validate import synthetic_for
+    from simura.validate import synthetic_for
 
     assert synthetic_for("LFP").id == "demo-synthetic-lfp"
     assert synthetic_for(get_dataset("stanford-tri").chemistry).id == "demo-synthetic-lfp"
@@ -206,7 +206,7 @@ def test_synthetic_for_matches_chemistry():
 
 # -- uploads (the pure dispatcher behind /api/validation/upload) ------------
 def test_load_upload_generic_columns_and_scale(tmp_path):
-    from celltwin.validate import load_upload
+    from simura.validate import load_upload
 
     p = tmp_path / "cell.csv"
     # custom column names, current in mA, charge logged positive.
@@ -231,7 +231,7 @@ def test_load_upload_generic_columns_and_scale(tmp_path):
 
 
 def test_load_upload_dataset_dispatch_sets_chemistry(tmp_path):
-    from celltwin.validate import load_upload, validate_run
+    from simura.validate import load_upload, validate_run
 
     # A stanford-tri (generic_csv loader) upload defaults chemistry to LFP, so the
     # LFP OCV curve is selected downstream.
@@ -246,7 +246,7 @@ def test_load_upload_dataset_dispatch_sets_chemistry(tmp_path):
 
 
 def test_load_upload_bad_columns_raises(tmp_path):
-    from celltwin.validate import load_upload
+    from simura.validate import load_upload
 
     p = tmp_path / "x.csv"
     p.write_text("a,b,c\n1,2,3\n", encoding="utf-8")

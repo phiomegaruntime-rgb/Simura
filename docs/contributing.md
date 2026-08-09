@@ -1,11 +1,11 @@
 # Contributing
 
-CellTwin is built to be approachable: the core libraries are pure Python + NumPy
+Simura is built to be approachable: the core libraries are pure Python + NumPy
 and unit-tested with no infrastructure, so you can be productive without a
 broker, a database, or real hardware.
 
 The full guide — dev setup, extras, style, and the PR checklist — lives in
-[`CONTRIBUTING.md`](https://github.com/celltwin/celltwin/blob/main/CONTRIBUTING.md)
+[`CONTRIBUTING.md`](https://github.com/simura/simura/blob/main/CONTRIBUTING.md)
 at the repository root. The essentials:
 
 ## Two principles
@@ -27,12 +27,12 @@ pytest -q
 Pure-library tests (`test_pack`, `test_detect`, `test_health`, `test_fleet`,
 `test_auth`) need only the `dev` extra; `test_connect` / `test_transport` also
 need `".[connect,server]"`. A change to a pure library **must** come with tests —
-[`tests/test_health.py`](https://github.com/celltwin/celltwin/blob/main/tests/test_health.py)
+[`tests/test_health.py`](https://github.com/simura/simura/blob/main/tests/test_health.py)
 is the model.
 
 ## Good first areas
 
-Each slots into an existing [example](https://github.com/celltwin/celltwin/tree/main/examples):
+Each slots into an existing [example](https://github.com/simura/simura/tree/main/examples):
 
 - A **new cell chemistry** (measured OCV–SoC table) — see [Simulator](simulator.md#cell-chemistry).
 - A **new load profile** from a real duty cycle.

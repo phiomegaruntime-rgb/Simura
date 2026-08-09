@@ -75,7 +75,7 @@ export default function BuildView({ onStarted }: { onStarted?: () => void }) {
     URL.revokeObjectURL(url);
   };
 
-  const goLiveCmd = `python -m celltwin.publisher --spec ${spec.system_id || "system"}.json --speed 10 --loop`;
+  const goLiveCmd = `python -m simura.publisher --spec ${spec.system_id || "system"}.json --speed 10 --loop`;
 
   return (
     <div className="flex flex-col gap-4">

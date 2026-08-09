@@ -1,4 +1,4 @@
-"""Tests for the system builder (celltwin.builder).
+"""Tests for the system builder (simura.builder).
 
 Pure-library: spec round-tripping, validation, offline preview, and that every
 profile/fault type actually builds and runs.
@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from celltwin.builder import (
+from simura.builder import (
     FAULT_TYPES,
     PROFILE_TYPES,
     FaultSpec,

@@ -3,9 +3,12 @@ import { fetchFleet, fetchSystems } from "./api/client";
 import { useTelemetry } from "./api/useTelemetry";
 import type { CellAnomaly, FleetResponse, SystemInfo } from "./api/types";
 import TopBar from "./components/TopBar";
+import HomeView from "./components/HomeView";
 import FleetOverview from "./components/FleetOverview";
 import ValidationView from "./components/ValidationView";
 import BuildView from "./components/BuildView";
+import WiresView from "./components/WiresView";
+import WiresValidationView from "./components/WiresValidationView";
 import Footer from "./components/Footer";
 import HealthBanner from "./components/HealthBanner";
 import StatTile from "./components/StatTile";
@@ -15,11 +18,10 @@ import EventLog from "./components/EventLog";
 import AnomalyPanel from "./components/AnomalyPanel";
 import DiagnosisCard from "./components/DiagnosisCard";
 import { anomalyLevel, faultLabel, imbalanceLevel, safetyLevel, tempLevel, worst } from "./lib/status";
-
-type View = "fleet" | "system" | "validation" | "build";
+import type { View } from "./lib/sections";
 
 export default function App() {
-  const [view, setView] = useState<View>("fleet");
+  const [view, setView] = useState<View>("home");
   const [systems, setSystems] = useState<SystemInfo[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [fleet, setFleet] = useState<FleetResponse | null>(null);
@@ -114,20 +116,25 @@ export default function App() {
         view={view}
         systems={systems}
         selected={selected}
-        onFleet={() => setView("fleet")}
-        onValidation={() => setView("validation")}
-        onBuild={() => setView("build")}
+        onHome={() => setView("home")}
+        onNavigate={(v) => setView(v)}
         connected={connected}
       />
 
       <main className="flex-1 p-6 flex flex-col gap-4 max-w-[1400px] w-full mx-auto">
-        {view === "build" ? (
+        {view === "home" ? (
+          <HomeView onOpen={(v) => setView(v)} />
+        ) : view === "build" ? (
           <BuildView
             onStarted={() => {
               refreshFleet();
               setView("fleet");
             }}
           />
+        ) : view === "wires" ? (
+          <WiresView />
+        ) : view === "wiresvalidation" ? (
+          <WiresValidationView />
         ) : view === "validation" ? (
           <ValidationView />
         ) : view === "fleet" ? (

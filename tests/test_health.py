@@ -7,9 +7,9 @@ is heating. All pure-library, driven by the simulator's fault scenarios.
 
 from __future__ import annotations
 
-from celltwin.detect import AnomalyEngine
-from celltwin.health import AssessmentEngine
-from celltwin.sim import (
+from simura.detect import AnomalyEngine
+from simura.health import AssessmentEngine
+from simura.sim import (
     ChargeDischargeCycle,
     CoolingFault,
     InternalShort,

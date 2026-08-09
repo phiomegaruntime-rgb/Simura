@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import json
 
-from celltwin.publisher.run import build_simulator
-from celltwin.transport import (
+from simura.publisher.run import build_simulator
+from simura.transport import (
     config_topic,
     system_id_from_topic,
     telemetry_topic,
@@ -18,14 +18,14 @@ from celltwin.transport import (
 
 
 def test_topic_roundtrip():
-    assert telemetry_topic("bess-01") == "celltwin/telemetry/bess-01"
-    assert config_topic("bess-01") == "celltwin/config/bess-01"
+    assert telemetry_topic("bess-01") == "simura/telemetry/bess-01"
+    assert config_topic("bess-01") == "simura/config/bess-01"
     assert system_id_from_topic(telemetry_topic("bess-01")) == "bess-01"
     assert system_id_from_topic(config_topic("xyz")) == "xyz"
 
 
 def test_wildcard_matches_prefix():
-    assert telemetry_wildcard() == "celltwin/telemetry/+"
+    assert telemetry_wildcard() == "simura/telemetry/+"
 
 
 def test_scenarios_build():

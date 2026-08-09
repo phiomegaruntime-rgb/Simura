@@ -11,14 +11,14 @@ import calendar
 
 import pytest
 
-from celltwin.sim import (
+from simura.sim import (
     ConstantCurrent,
     EnvironmentCoupling,
     PackConfig,
     SimConfig,
     Simulator,
 )
-from celltwin.weather import (
+from simura.weather import (
     CachedProvider,
     CsvReplayProvider,
     OpenMeteoProvider,
@@ -28,7 +28,7 @@ from celltwin.weather import (
     WeatherSeries,
     build_provider,
 )
-from celltwin.weather.providers.open_meteo import _parse_gmt
+from simura.weather.providers.open_meteo import _parse_gmt
 
 
 def _epoch(y=2024, mo=1, d=1, h=12) -> float:

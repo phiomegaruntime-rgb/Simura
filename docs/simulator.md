@@ -22,7 +22,7 @@ hundreds-of-cells rack steps in one vectorized pass.
 ## Putting a run together
 
 ```python
-from celltwin.sim import Simulator, PackConfig, SimConfig, ChargeDischargeCycle, InternalShort
+from simura.sim import Simulator, PackConfig, SimConfig, ChargeDischargeCycle, InternalShort
 
 sim = Simulator(
     PackConfig(series=12, parallel=2, initial_soc=0.9),      # 12S2P NMC pack
@@ -54,7 +54,7 @@ them over the wire:
 A profile is anything with `current(t, pack_voltage_v) -> amps` (positive =
 discharge). Built-ins: `ConstantCurrent`, `ConstantPower`, `ChargeDischargeCycle`,
 and `sinusoidal`. Plugging in your own is a one-class job — see
-[`examples/custom_profile.py`](https://github.com/celltwin/celltwin/blob/main/examples/custom_profile.py).
+[`examples/custom_profile.py`](https://github.com/simura/simura/blob/main/examples/custom_profile.py).
 
 ## Faults
 
@@ -77,7 +77,7 @@ tell apart.
 The OCV–SoC curve is a chemistry's electrical fingerprint. The default is an
 illustrative NMC table; swap it with `make_ocv(your_table)` to model LFP, NCA,
 etc. LFP's famously flat plateau is why voltage-only SoC estimation is hard —
-[`examples/ocv_chemistry.py`](https://github.com/celltwin/celltwin/blob/main/examples/ocv_chemistry.py)
+[`examples/ocv_chemistry.py`](https://github.com/simura/simura/blob/main/examples/ocv_chemistry.py)
 demonstrates both the curve comparison and how to inject a chemistry into a run.
 
 ## The telemetry contract

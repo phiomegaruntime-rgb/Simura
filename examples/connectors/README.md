@@ -21,15 +21,15 @@ MQTT broker running (the `docker compose` stack starts one, or run
 **Modbus:**
 
 ```bash
-python -m celltwin.connect.devsim --protocol modbus --port 5020 --scenario fault
-python -m celltwin.connect --config examples/connectors/modbus.yaml
+python -m simura.connect.devsim --protocol modbus --port 5020 --scenario fault
+python -m simura.connect --config examples/connectors/modbus.yaml
 ```
 
 **OPC-UA:**
 
 ```bash
-python -m celltwin.connect.devsim --protocol opcua --port 4840 --scenario fault
-python -m celltwin.connect --config examples/connectors/opcua.yaml
+python -m simura.connect.devsim --protocol opcua --port 4840 --scenario fault
+python -m simura.connect --config examples/connectors/opcua.yaml
 ```
 
 The Modbus device + connector are already wired into the default
