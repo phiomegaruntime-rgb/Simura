@@ -332,10 +332,19 @@ electro-thermal behaviour under load, and test wiring logic and planning.
   reference tables are computed offline from the standard resistivity and nominal
   AWG area (`R = ρ·L/A`), so the small, honest copper bias (~2.5 %, pure vs annealed
   copper) falls straight out.
+- [x] **Weather coupling** (`environment.py`): the conductor counterpart to the
+  battery's `sim.environment` — reuses the domain-agnostic `simura.weather` package
+  to drive ambient temperature, wind-boosted convective cooling and absorbed solar
+  heat (the standard conductor heat balance / dynamic line rating, cf. IEEE 738).
+  Rides the fault-effect `cooling_mult` (wind) and `extra_heat_w` (sun) channels;
+  weather conditions ride along on each `WireTelemetry` frame. Also threaded into
+  the **planner**: `evaluate_run` / `recommend_gauge` take an optional weather
+  sample, derating ampacity for ambient (standard `sqrt` correction) and reflecting
+  wind/sun in the predicted temperature — surfaced in the dashboard **Wires** view.
 - [x] **Declarative builders**, a CLI (`python -m simura.wires --catalog |
-  --evaluate | --recommend | --network | --simulate`, plus
-  `python -m simura.wires.validation --list | --standard <id>`), two examples
-  (`wire_planning.py`, `wire_thermal.py`), and a docs page.
+  --evaluate | --recommend | --network | --simulate [--weather]`, plus
+  `python -m simura.wires.validation --list | --standard <id>`), three examples
+  (`wire_planning.py`, `wire_thermal.py`, `wire_weather.py`), and a docs page.
 
 **Verified:** `test_wires` (36) covers AWG area vs the standard table, `R = ρL/A`
 against the textbook 12 AWG value and its temperature dependence, thermal
@@ -345,8 +354,13 @@ the network solve (a 2-node run's self-consistency, a branch conserving current
 per KCL with monotonically dropping node voltages). `test_wire_validation` (11)
 covers the standards catalog, the expected copper/aluminium resistivity bias, a
 self-consistency zero-error check, overlay alignment, and the upload-CSV loader
-(unit conversion, missing-column and non-standard-gauge handling). Both examples
-run and `mkdocs build --strict` stays clean.
+(unit conversion, missing-column and non-standard-gauge handling).
+`test_wire_weather` (15) covers the environment coupling's three levers and each
+one's correct effect on steady-state temperature (hotter ambient, wind cools, sun
+heats at zero current), telemetry carrying the conditions, and the weather-aware
+planner (hot-ambient ampacity derating, cold-day uprating, wind cooling the
+temperature without crediting the ampacity, and `recommend_gauge` sizing up on a
+hot day). All three examples run and `mkdocs build --strict` stays clean.
 
 ### Backlog
 - AC / reactance, temperature-derated catalog ampacity tables, bundle/conduit

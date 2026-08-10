@@ -156,17 +156,46 @@ class Wire:
     def ampacity_utilization(self, current_a: float) -> float:
         return abs(current_a) / self.ampacity_a if self.ampacity_a > 0 else 0.0
 
-    def steady_state_temp_c(self, current_a: float, ambient_c: float | None = None) -> float:
+    def derated_ampacity_a(self, ambient_c: float, ref_ambient_c: float = 30.0) -> float:
+        """Ampacity corrected for ambient temperature (NEC 310.15(B)-style).
+
+        A catalog ampacity is the current that brings the conductor to its
+        insulation rating at a reference ambient (``ref_ambient_c``, ~30 C for the
+        free-air reference numbers here). On a hotter day there is less headroom to
+        the rating, so the safe current falls; on a colder day it rises. The
+        standard correction is ``sqrt((T_rating - T_amb) / (T_rating - T_ref))``,
+        which follows from ``I^2*R = k*(T_rating - T_amb)``. Returns 0 once the
+        ambient reaches the insulation rating (no capacity left).
+        """
+        ref_headroom = self.temp_rating_c - ref_ambient_c
+        headroom = self.temp_rating_c - ambient_c
+        if ref_headroom <= 0:
+            return self.ampacity_a
+        if headroom <= 0:
+            return 0.0
+        return self.ampacity_a * math.sqrt(headroom / ref_headroom)
+
+    def steady_state_temp_c(
+        self,
+        current_a: float,
+        ambient_c: float | None = None,
+        cooling_mult: float = 1.0,
+        extra_heat_w: float = 0.0,
+    ) -> float:
         """Equilibrium temperature under a constant current.
 
-        Solves ``I^2*R(T) = k_cool*(T - T_amb)`` by fixed-point iteration so the
-        temperature-dependence of resistance is respected.
+        Solves ``I^2*R(T) + extra_heat_w = k_cool*cooling_mult*(T - T_amb)`` by
+        fixed-point iteration, so the temperature-dependence of resistance is
+        respected. ``cooling_mult`` (wind) and ``extra_heat_w`` (absorbed sun) let
+        the weather coupling be reflected in the steady state, mirroring
+        :meth:`step`.
         """
         amb = self.ambient_c if ambient_c is None else ambient_c
+        k = self.k_cool * cooling_mult
         t = amb
         for _ in range(50):
             r = self.resistance_ohm(t)
-            t_new = amb + current_a * current_a * r / self.k_cool
+            t_new = amb + (current_a * current_a * r + extra_heat_w) / k
             if abs(t_new - t) < 1e-6:
                 return t_new
             t = t_new
@@ -191,7 +220,8 @@ class Wire:
         r = self.resistance_ohm(self.temp_c) * effect.resistance_mult + effect.extra_resistance_ohm
         i = current_a + effect.extra_current_a
         q_gen = i * i * r + effect.extra_heat_w
-        dtemp = (q_gen - self.k_cool * (self.temp_c - self.ambient_c)) / self.c_th * dt_s
+        k_cool = self.k_cool * effect.cooling_mult
+        dtemp = (q_gen - k_cool * (self.temp_c - self.ambient_c)) / self.c_th * dt_s
         self.temp_c = self.temp_c + dtemp
         # Stash the effective resistance/current so telemetry reflects faults.
         self._last_resistance_ohm = r

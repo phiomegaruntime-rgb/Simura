@@ -21,6 +21,13 @@ export default function WiresView() {
   const [ambient, setAmbient] = useState(25);
   const [roundTrip, setRoundTrip] = useState(true);
 
+  // Optional weather: when on, the check derates ampacity for ambient and reflects
+  // wind cooling / solar heating in the predicted conductor temperature.
+  const [weatherOn, setWeatherOn] = useState(false);
+  const [airTemp, setAirTemp] = useState(40);
+  const [wind, setWind] = useState(0);
+  const [solar, setSolar] = useState(0);
+
   const [assessment, setAssessment] = useState<RunAssessment | null>(null);
   const [rec, setRec] = useState<Recommendation | null>(null);
   const [busy, setBusy] = useState(false);
@@ -41,6 +48,9 @@ export default function WiresView() {
     fn().catch((e) => setErr(String(e?.message ?? e))).finally(() => setBusy(false));
   };
 
+  const weatherBody = () =>
+    weatherOn ? { air_temp_c: airTemp, wind_speed_ms: wind, solar_w_m2: solar } : undefined;
+
   const evaluate = () =>
     run(async () => {
       setRec(null);
@@ -50,6 +60,7 @@ export default function WiresView() {
         system_voltage_v: voltage,
         max_drop_pct: maxDrop,
         round_trip: roundTrip,
+        weather: weatherBody(),
       });
       setAssessment(a);
     });
@@ -65,6 +76,7 @@ export default function WiresView() {
         material,
         ambient_c: ambient,
         round_trip: roundTrip,
+        weather: weatherBody(),
       });
       setRec(r);
     });
@@ -118,6 +130,26 @@ export default function WiresView() {
         </div>
       </Section>
 
+      <Section title="Weather (optional)">
+        <p className="text-xs text-muted -mt-1 max-w-3xl">
+          Size for a specific day. A hotter <span className="text-ink">ambient</span> derates the
+          ampacity (there's less headroom to the insulation rating);{" "}
+          <span className="text-ink">wind</span> cools the conductor and <span className="text-ink">sun</span>{" "}
+          heats it, moving the predicted temperature. Ampacity derating is ambient-only and
+          conservative — it doesn't credit the wind.
+        </p>
+        <Row>
+          <Toggle label="Apply weather" checked={weatherOn} onChange={setWeatherOn} />
+          {weatherOn && (
+            <>
+              <NumField label="Ambient °C" value={airTemp} step={1} onChange={setAirTemp} />
+              <NumField label="Wind (m/s)" value={wind} step={0.5} onChange={setWind} />
+              <NumField label="Solar (W/m²)" value={solar} step={50} onChange={setSolar} />
+            </>
+          )}
+        </Row>
+      </Section>
+
       {assessment && <AssessmentPanel a={assessment} />}
       {rec && <RecommendPanel rec={rec} onUse={(w) => { setMaterial(w.material); setAwg(w.awg); setInsulation(w.insulation); }} />}
 
@@ -131,7 +163,15 @@ function AssessmentPanel({ a }: { a: RunAssessment }) {
   const ampLevel = a.ampacity_utilization > 1 ? "critical" : a.ampacity_utilization > 0.8 ? "warning" : "good";
   return (
     <div className="rounded-lg bg-surface border border-hairline px-5 py-4 flex flex-col gap-4">
-      <h3 className="text-sm font-semibold text-ink">Assessment</h3>
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold text-ink">Assessment</h3>
+        {a.ambient_temp_c != null && (
+          <span className="text-xs text-muted">
+            at <span className="text-ink-secondary">{a.ambient_temp_c.toFixed(0)} °C</span> ambient ·
+            ampacity derated for temperature
+          </span>
+        )}
+      </div>
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <StatTile label="Resistance" value={(a.resistance_ohm * 1000).toFixed(1)} unit="mΩ" />
         <StatTile

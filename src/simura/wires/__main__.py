@@ -101,14 +101,29 @@ def _cmd_network() -> int:
 def _cmd_simulate(args) -> int:
     spec = WireSpec(material=args.material, awg=args.awg, length_m=args.length,
                     insulation=args.insulation, ambient_temp_c=args.ambient)
+    # Optional weather coupling: a deterministic synthetic diurnal cycle, so the
+    # conductor cools with the wind and warms in the sun over the run.
+    weather = None
+    if args.weather:
+        from ..weather import SyntheticProvider
+        weather = SyntheticProvider(mean_temp_c=args.ambient, temp_amplitude_c=6.0,
+                                    wind_mean_ms=args.wind, solar_peak_w_m2=args.solar)
     sim = WireSimulator(spec=spec, sim_config=WireSimConfig(dt_s=1.0, duration_s=args.duration),
-                        profile=ConstantCurrent(args.current))
+                        profile=ConstantCurrent(args.current), weather=weather,
+                        weather_epoch0=1704110400.0 if weather else None)
     frames = sim.run_to_list()
-    print(f"{'t (s)':>7}{'temp C':>9}{'R mOhm':>9}{'loss W':>9}{'util %':>8}")
+    header = f"{'t (s)':>7}{'temp C':>9}{'R mOhm':>9}{'loss W':>9}{'util %':>8}"
+    if args.weather:
+        header += f"{'amb C':>8}{'wind':>7}{'sun':>7}"
+    print(header)
     step = max(1, len(frames) // 12)
     for f in frames[::step]:
-        print(f"{f.time_s:>7.0f}{f.temp_c:>9.2f}{f.resistance_ohm * 1000:>9.3f}"
-              f"{f.power_loss_w:>9.3f}{f.ampacity_utilization * 100:>8.0f}")
+        row = (f"{f.time_s:>7.0f}{f.temp_c:>9.2f}{f.resistance_ohm * 1000:>9.3f}"
+               f"{f.power_loss_w:>9.3f}{f.ampacity_utilization * 100:>8.0f}")
+        if f.weather:
+            row += (f"{f.weather['air_temp_c']:>8.1f}{f.weather['wind_speed_ms']:>7.1f}"
+                    f"{f.weather['solar_w_m2']:>7.0f}")
+        print(row)
     last = frames[-1]
     print(f"\nsettled at {last.temp_c:.1f} C (rating {last.temp_rating_c:.0f} C), "
           f"{'OVER TEMP' if last.over_temp else 'within rating'}")
@@ -135,6 +150,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--max-drop", type=float, default=3.0, help="allowable %% voltage drop")
     ap.add_argument("--duration", type=float, default=600.0, help="--simulate seconds")
     ap.add_argument("--one-way", action="store_true", help="single conductor (no round trip)")
+    ap.add_argument("--weather", action="store_true", help="--simulate with a synthetic diurnal weather cycle")
+    ap.add_argument("--wind", type=float, default=4.0, help="peak wind (m/s) for --weather")
+    ap.add_argument("--solar", type=float, default=900.0, help="peak solar (W/m^2) for --weather")
     args = ap.parse_args(argv)
 
     if args.catalog:

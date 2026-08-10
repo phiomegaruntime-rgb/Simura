@@ -1,7 +1,7 @@
 // Placeholder locations — update these when the repo / docs site go public.
 // (Kept in one place so it's a one-line change per link.)
-const DOCS_URL = "https://simura.github.io";
-const REPO_URL = "https://github.com/simura/simura";
+const DOCS_URL = "msunkara101.github.io/Simura/";
+const REPO_URL = "https://github.com/msunkara101/Simura";
 
 const LINKS: { label: string; href: string }[] = [
   { label: "Documentation", href: DOCS_URL },

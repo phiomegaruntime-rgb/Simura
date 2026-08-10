@@ -35,6 +35,11 @@ from .catalog import (
     wire_type_for,
 )
 from .config import WIRE_MATERIALS, build_network, build_wire, catalog_options
+from .environment import (
+    WireEnvironmentCoupling,
+    WireEnvironmentEffect,
+    apply_to_effect as apply_weather_to_effect,
+)
 from .faults import (
     ConductorDamage,
     ContactResistance,
@@ -107,4 +112,8 @@ __all__ = [
     "build_network",
     "catalog_options",
     "WIRE_MATERIALS",
+    # environment / weather coupling
+    "WireEnvironmentCoupling",
+    "WireEnvironmentEffect",
+    "apply_weather_to_effect",
 ]

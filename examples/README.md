@@ -14,6 +14,9 @@ so you don't even need to `pip install` first.
 | [`validate_demo.py`](validate_demo.py) | **Validate the model against battery data** — replays a sample's measured current through Simura's cell model and reports voltage error (nominal vs best-fit R0). Runs offline on a bundled *synthetic* sample; `python -m simura.validate --list` shows the real open datasets (NASA, Oxford, …). |
 | [`build_system.py`](build_system.py) | **Design your own system** — build a custom LFP pack with an injected fault as a `SystemSpec`, preview it offline (SoC/temp/energy/safety), write the spec to JSON, and print the `python -m simura.publisher --spec …` go-live command. |
 | [`weather_demo.py`](weather_demo.py) | **Weather coupling** — drive a pack's ambient temperature, wind cooling and solar heat from a weather source; shows a resting pack tracking a diurnal ambient and a builder preview under synthetic weather. Fully offline; `python -m simura.weather --synthetic` samples the model directly. |
+| [`wire_planning.py`](wire_planning.py) | The **Wires** component: check a run against ampacity / voltage drop / temperature, size the smallest adequate gauge, then solve a small multi-node network. |
+| [`wire_thermal.py`](wire_thermal.py) | Watch an **undersized conductor overheat** — a 14 AWG copper wire at 25 A climbs past its 90 °C insulation rating, while a correctly-sized 10 AWG run stays cool. |
+| [`wire_weather.py`](wire_weather.py) | **Weather-coupled conductor** — the same wire and current settle at very different temperatures on a still hot day vs. a windy or sunny one (the basis of dynamic line rating). |
 | [`connectors/`](connectors/) | Config files for the real-hardware connectors (Modbus / OPC-UA / MQTT). See [connectors/README.md](connectors/README.md). |
 
 ```bash
@@ -24,6 +27,9 @@ python examples/ocv_chemistry.py
 python examples/validate_demo.py
 python examples/build_system.py
 python examples/weather_demo.py
+python examples/wire_planning.py
+python examples/wire_thermal.py
+python examples/wire_weather.py
 ```
 
 These double as the friendliest **good first areas** for contributors: a new

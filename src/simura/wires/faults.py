@@ -23,7 +23,8 @@ class FaultEffect:
     resistance_mult: float = 1.0        # scales conductor resistance
     extra_resistance_ohm: float = 0.0   # series resistance added (e.g. bad joint)
     extra_current_a: float = 0.0        # parasitic current (e.g. ground fault)
-    extra_heat_w: float = 0.0           # extra heat injected (e.g. hot joint)
+    extra_heat_w: float = 0.0           # extra heat injected (e.g. hot joint, absorbed sun)
+    cooling_mult: float = 1.0           # scales convective cooling (e.g. wind)
     ampacity_mult: float = 1.0          # derates the current rating
     temp_rating_delta: float = 0.0      # shifts the insulation temp limit (<0 = degraded)
 

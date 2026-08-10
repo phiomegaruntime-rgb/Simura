@@ -18,6 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .catalog import WireType, list_wire_types
+from .environment import WireEnvironmentCoupling
 from .wire import Wire, WireSpec
 
 
@@ -33,6 +34,7 @@ class RunAssessment:
     ampacity_a: float
     ampacity_utilization: float
     temp_rating_c: float
+    ambient_temp_c: float | None = None   # ambient used (weather-driven when set)
     problems: list[str] = field(default_factory=list)
 
     @property
@@ -51,25 +53,59 @@ def evaluate_run(
     system_voltage_v: float | None = None,
     max_drop_pct: float = 3.0,
     round_trip: bool = False,
+    weather=None,
+    coupling: WireEnvironmentCoupling | None = None,
 ) -> RunAssessment:
-    """Check ``spec`` carrying ``current_a`` against ampacity/drop/temperature."""
+    """Check ``spec`` carrying ``current_a`` against ampacity/drop/temperature.
+
+    When ``weather`` (a ``WeatherSample``) is supplied the check becomes
+    weather-aware: the conductor's steady-state temperature reflects the day's
+    ambient, wind cooling and absorbed sun, and the ampacity is **derated for
+    ambient** (the standard, conservative correction — it deliberately does not
+    credit the wind, which shows up only in the predicted temperature). Without
+    ``weather`` the behaviour is unchanged.
+    """
     wire = Wire(spec)
     conductors = 2 if round_trip else 1
 
-    t_ss = wire.steady_state_temp_c(current_a)
+    # Environmental levers: ambient, wind cooling, absorbed solar heat.
+    ambient_c = wire.ambient_c
+    cooling_mult = 1.0
+    extra_heat_w = 0.0
+    if weather is not None:
+        coupling = coupling or WireEnvironmentCoupling()
+        env = coupling.apply(weather, wire.diameter_m * wire.length_m)
+        ambient_c = env.ambient_c
+        cooling_mult = env.cooling_mult
+        extra_heat_w = env.solar_heat_w
+
+    t_ss = wire.steady_state_temp_c(
+        current_a, ambient_c=ambient_c, cooling_mult=cooling_mult, extra_heat_w=extra_heat_w
+    )
     r_one = wire.resistance_ohm(t_ss)
     r_total = r_one * conductors
     drop = abs(current_a) * r_total
     loss = current_a * current_a * r_total
-    util = wire.ampacity_utilization(current_a)
     drop_pct = (drop / system_voltage_v * 100.0) if system_voltage_v else None
 
+    # Ampacity: derate for ambient when weather-driven; otherwise the reference rating.
+    ampacity = wire.derated_ampacity_a(ambient_c) if weather is not None else wire.ampacity_a
+
     problems: list[str] = []
-    if util > 1.0:
+    if ampacity <= 0.0:
+        util = 9.99  # sentinel: ambient at/above the rating leaves no capacity
         problems.append(
-            f"over ampacity: {abs(current_a):.1f} A exceeds the {wire.ampacity_a:.0f} A rating "
-            f"({util * 100:.0f}%)"
+            f"ambient {ambient_c:.0f} C reaches the {wire.temp_rating_c:.0f} C insulation "
+            f"rating — no usable ampacity"
         )
+    else:
+        util = abs(current_a) / ampacity
+        if util > 1.0:
+            at = f" at {ambient_c:.0f} C" if weather is not None else ""
+            problems.append(
+                f"over ampacity: {abs(current_a):.1f} A exceeds the {ampacity:.0f} A rating"
+                f"{at} ({util * 100:.0f}%)"
+            )
     if drop_pct is not None and drop_pct > max_drop_pct:
         problems.append(
             f"voltage drop {drop_pct:.1f}% exceeds the {max_drop_pct:.1f}% limit "
@@ -87,9 +123,10 @@ def evaluate_run(
         voltage_drop_pct=None if drop_pct is None else round(drop_pct, 3),
         power_loss_w=round(loss, 4),
         steady_state_temp_c=round(t_ss, 2),
-        ampacity_a=round(wire.ampacity_a, 2),
+        ampacity_a=round(ampacity, 2),
         ampacity_utilization=round(util, 4),
         temp_rating_c=round(wire.temp_rating_c, 2),
+        ambient_temp_c=round(ambient_c, 2) if weather is not None else None,
         problems=problems,
     )
 
@@ -120,12 +157,15 @@ def recommend_gauge(
     material: str = "copper",
     ambient_c: float = 25.0,
     round_trip: bool = True,
+    weather=None,
 ) -> Recommendation:
     """Smallest catalog wire of ``material`` that satisfies every constraint.
 
     Walks the catalog from smallest cross-section up and returns the first wire
     that passes :func:`evaluate_run`. If none pass, returns the largest available
-    with its remaining problems and ``ok=False``.
+    with its remaining problems and ``ok=False``. When ``weather`` is supplied the
+    sizing is done for that day's conditions (a hot, still day derates ampacity and
+    can push the recommendation up a gauge).
     """
     candidates = sorted(
         (w for w in list_wire_types() if w.material == material),
@@ -134,10 +174,13 @@ def recommend_gauge(
     if not candidates:
         return Recommendation(None, None, f"no {material} wires in the catalog", False)
 
+    spec_ambient = weather.air_temp_c if weather is not None else ambient_c
     last: tuple[WireType, RunAssessment] | None = None
     for wt in candidates:
-        spec = WireSpec(wire_type=wt.id, length_m=length_m, ambient_temp_c=ambient_c)
-        assessment = evaluate_run(spec, current_a, system_voltage_v, max_drop_pct, round_trip)
+        spec = WireSpec(wire_type=wt.id, length_m=length_m, ambient_temp_c=spec_ambient)
+        assessment = evaluate_run(
+            spec, current_a, system_voltage_v, max_drop_pct, round_trip, weather=weather
+        )
         last = (wt, assessment)
         if assessment.ok:
             rationale = (

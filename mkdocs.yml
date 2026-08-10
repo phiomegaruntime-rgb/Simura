@@ -2,8 +2,8 @@ site_name: Simura
 site_description: An open, physics-based digital twin for battery energy storage systems (BESS).
 copyright: "&copy; 2026 Simura &middot; Simura is open source under Apache-2.0"
 # TODO: point these at the real repository once it's published.
-repo_url: https://github.com/simura/simura
-repo_name: simura/simura
+repo_url: https://github.com/msunkara101/Simura
+repo_name: msunkara101/simura
 edit_uri: edit/main/docs/
 
 theme:

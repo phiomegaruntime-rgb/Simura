@@ -67,6 +67,38 @@ print(rec.wire_type.name, rec.rationale)
 `round_trip=True` accounts for the there-and-back path of a two-conductor DC
 circuit (the conductor *temperature* is always evaluated per single conductor).
 
+### Planning for the weather
+
+Both checks take an optional `weather` sample (a [`WeatherSample`](weather.md)),
+so you can size for a specific day rather than a nominal 25 °C:
+
+```python
+from simura.weather import StaticProvider
+
+hot = StaticProvider(air_temp_c=45, wind_speed_ms=0, solar_w_m2=800).at(0)
+a = evaluate_run(WireSpec(wire_type="cu-12-thhn90", length_m=20),
+                 current_a=24, system_voltage_v=48, round_trip=True, weather=hot)
+print(a.ampacity_a, a.steady_state_temp_c, a.problems)
+# ampacity derated to ~21.6 A, conductor ~121 °C -> over ampacity AND over rating
+
+rec = recommend_gauge(current_a=50, length_m=2, system_voltage_v=48,
+                      max_drop_pct=10, weather=hot)   # a hot day sizes the gauge up
+```
+
+Weather moves two things:
+
+- **Ampacity is derated for ambient** using the standard correction
+  `sqrt((T_rating − T_amb) / (T_rating − T_ref))` (ref ≈ 30 °C) — less headroom to
+  the insulation rating on a hot day, more on a cold one. This is **ambient-only
+  and deliberately conservative**: it does not credit the wind (which you can't
+  guarantee), so `recommend_gauge` never under-sizes.
+- **The predicted conductor temperature** reflects the full weather — ambient plus
+  wind cooling and absorbed sun — so on a windy day the run can read *within* its
+  temperature rating even while the (conservative) ampacity check still flags it.
+
+The assessment records the `ambient_temp_c` it used. See the [Weather](#weather)
+section below for the underlying coupling.
+
 ## Networks
 
 Connect several nodes and wires, fix a source voltage, draw loads, and solve the
@@ -105,6 +137,49 @@ sim = WireSimulator(
 for frame in sim.run():
     ...   # frame.temp_c climbs past frame.temp_rating_c -> frame.over_temp
 ```
+
+## Weather
+
+A conductor's temperature is a heat balance with its environment, so weather is a
+first-order driver — the same standard conductor heat balance behind *dynamic line
+rating* (cf. IEEE Std 738): `I²R + solar` heats it, `convection + radiation` cools
+it. The `WireSimulator` couples to the **reusable [`simura.weather`](weather.md)
+package** exactly as the battery pack does, through a thin wire-specific
+translation (`simura.wires.environment`) that maps a `WeatherSample` onto three
+levers the `Wire` model already has:
+
+| Weather | Lever | Effect |
+| --- | --- | --- |
+| Air temperature | ambient `T_amb` | the temperature the conductor cools toward |
+| Wind speed | convective cooling `k_cool` | forced convection carries heat away faster |
+| Solar irradiance | absorbed heat load | a sunlit conductor runs warm at zero current |
+
+```python
+from simura.weather import SyntheticProvider
+from simura.wires import WireSimulator, WireSimConfig, WireSpec, ConstantCurrent
+
+sim = WireSimulator(
+    spec=WireSpec(awg=14, length_m=5, insulation="THHN-90"),
+    sim_config=WireSimConfig(dt_s=1.0, duration_s=2400.0),
+    profile=ConstantCurrent(25.0),
+    weather=SyntheticProvider(mean_temp_c=30, wind_mean_ms=4, solar_peak_w_m2=900),
+)
+last = sim.run_to_list()[-1]
+print(last.temp_c, last.weather)   # conditions ride along on every frame
+```
+
+The same 25 A conductor settles near **210 °C** on a still, hot day but around
+**90 °C** in a stiff breeze — which is precisely why real line ratings are
+weather-dependent. Any `WeatherProvider` works (`StaticProvider`,
+`SyntheticProvider`, `CsvReplayProvider`, live `OpenMeteoProvider`); the
+coefficients (`WireEnvironmentCoupling`) are illustrative and tunable per
+installation. Wind rides the fault-effect `cooling_mult` channel and solar the
+`extra_heat_w` channel, so the integrator needs no new inputs.
+
+!!! note "Exposed runs vs. conduit"
+    Wind and sun matter most for *exposed* conductors (overhead drops, PV strings,
+    outdoor battery leads). For an indoor or in-conduit run, set
+    `shading_frac=1` (no solar) and a low wind — ambient still applies.
 
 ## Faults
 
@@ -151,13 +226,14 @@ python -m simura.wires --evaluate --awg 12 --length 20 --current 15 --voltage 12
 python -m simura.wires --recommend --current 15 --length 20 --voltage 12 --max-drop 3
 python -m simura.wires --network
 python -m simura.wires --simulate --awg 14 --current 25
+python -m simura.wires --simulate --awg 14 --current 25 --weather --wind 8   # weather-coupled
 
 python -m simura.wires.validation --list
 python -m simura.wires.validation --standard copper-annealed-20c
 ```
 
-See `examples/wire_planning.py` and `examples/wire_thermal.py` for runnable
-walkthroughs.
+See `examples/wire_planning.py`, `examples/wire_thermal.py` and
+`examples/wire_weather.py` for runnable walkthroughs.
 
 ## In the dashboard
 
@@ -166,7 +242,9 @@ The **Wires** component has two sub-views, backed by the pure-compute
 
 - **Wiring planner** — pick a run and a load and *check* it (ampacity / voltage
   drop / temperature, with the problems listed) or *recommend* the smallest
-  adequate gauge, plus the full catalog as a table.
+  adequate gauge, plus the full catalog as a table. A **Weather (optional)** panel
+  sizes the run for a specific day — ambient derates the ampacity, wind and sun
+  move the predicted temperature.
 - **Validation** — validate the conductor model against a bundled standard or your
   own measured-resistance CSV, with metric tiles and a published-vs-model
   resistance chart.

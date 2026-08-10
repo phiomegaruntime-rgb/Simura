@@ -11,6 +11,7 @@ import type {
   TrendPoint,
   UploadOptions,
   ValidationReport,
+  WeatherInput,
   WireCatalog,
   WireStandardSpec,
   WireUploadOptions,
@@ -196,6 +197,7 @@ export interface WireEvalBody {
   system_voltage_v?: number;
   max_drop_pct?: number;
   round_trip?: boolean;
+  weather?: WeatherInput;
 }
 
 /** Check one wire run against ampacity / voltage drop / temperature. */
@@ -216,6 +218,7 @@ export interface RecommendBody {
   material?: string;
   ambient_c?: number;
   round_trip?: boolean;
+  weather?: WeatherInput;
 }
 
 /** Size the smallest catalog wire that satisfies the constraints. */

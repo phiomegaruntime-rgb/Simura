@@ -9,6 +9,7 @@ instant under one current.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, fields
+from typing import Optional
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,7 @@ class WireTelemetry:
     temp_rating_c: float
     over_ampacity: bool             # |I| > ampacity
     over_temp: bool                 # temp_c > temp_rating_c
+    weather: Optional[dict] = None  # environmental conditions this step (None if unused)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -34,12 +36,13 @@ class WireTelemetry:
         return cls(**{k: v for k, v in d.items() if k in known})
 
 
-def snapshot(wire, t: float, current_a: float, effect=None) -> WireTelemetry:
+def snapshot(wire, t: float, current_a: float, effect=None, weather=None) -> WireTelemetry:
     """Build a :class:`WireTelemetry` from a wire's current state.
 
     Uses the effective (fault-adjusted) resistance/current/ratings stashed by the
     last :meth:`Wire.step`, so a faulty joint or degraded insulation shows up in
-    what is *measured*, not just in the physics.
+    what is *measured*, not just in the physics. ``weather`` (a ``WeatherSample``)
+    is recorded on the frame when the run is weather-driven.
     """
     r = getattr(wire, "_last_resistance_ohm", wire.resistance_ohm(wire.temp_c))
     i = getattr(wire, "_last_current_a", current_a)
@@ -59,4 +62,5 @@ def snapshot(wire, t: float, current_a: float, effect=None) -> WireTelemetry:
         temp_rating_c=round(float(temp_rating), 2),
         over_ampacity=bool(abs(i) > ampacity),
         over_temp=bool(wire.temp_c > temp_rating),
+        weather=weather.to_dict() if weather is not None else None,
     )

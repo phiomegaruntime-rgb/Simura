@@ -353,6 +353,13 @@ export interface WireCatalog {
   wire_types: WireType[];
 }
 
+// A single instant's weather, as the planner accepts it.
+export interface WeatherInput {
+  air_temp_c: number;
+  wind_speed_ms?: number;
+  solar_w_m2?: number;
+}
+
 // simura.wires.planning.RunAssessment
 export interface RunAssessment {
   resistance_ohm: number;
@@ -363,6 +370,7 @@ export interface RunAssessment {
   ampacity_a: number;
   ampacity_utilization: number;
   temp_rating_c: number;
+  ambient_temp_c: number | null;   // ambient used (set when weather-driven)
   problems: string[];
 }
 

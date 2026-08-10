@@ -43,6 +43,7 @@ from ..wires.validation import (
     load_upload_csv,
     validate_reference,
 )
+from ..weather import WeatherSample
 from ..validate import (
     get_dataset,
     list_datasets,
@@ -278,11 +279,33 @@ async def wires_catalog() -> dict[str, Any]:
     return catalog_options()
 
 
+def _weather_from_body(body: dict[str, Any]) -> WeatherSample | None:
+    """Build a WeatherSample from an optional ``weather`` object on a planner body.
+
+    The planner only needs one instant's conditions, so we take a plain
+    ``{air_temp_c, wind_speed_ms?, solar_w_m2?}`` and stamp it with a placeholder
+    timestamp/source. Returns ``None`` when no weather is supplied.
+    """
+    w = body.get("weather")
+    if not w:
+        return None
+    return WeatherSample(
+        timestamp=0.0,
+        air_temp_c=float(w["air_temp_c"]),
+        wind_speed_ms=float(w.get("wind_speed_ms", 0.0)),
+        solar_w_m2=float(w.get("solar_w_m2", 0.0)),
+        source="planner",
+    )
+
+
 @router.post("/api/wires/evaluate")
 async def wires_evaluate(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     """Check one wire run against ampacity / voltage drop / temperature.
 
-    Body: ``{spec: {...WireSpec}, current_a, system_voltage_v?, max_drop_pct?, round_trip?}``.
+    Body: ``{spec: {...WireSpec}, current_a, system_voltage_v?, max_drop_pct?,
+    round_trip?, weather?: {air_temp_c, wind_speed_ms?, solar_w_m2?}}``. When
+    ``weather`` is present the check is done for that day's conditions (ambient
+    derates the ampacity; wind and sun move the predicted conductor temperature).
     """
     try:
         spec = WireSpec.from_dict(body.get("spec", {}))
@@ -292,6 +315,7 @@ async def wires_evaluate(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
             system_voltage_v=body.get("system_voltage_v"),
             max_drop_pct=float(body.get("max_drop_pct", 3.0)),
             round_trip=bool(body.get("round_trip", True)),
+            weather=_weather_from_body(body),
         )
     except (ValueError, KeyError) as exc:
         raise HTTPException(status_code=400, detail={"errors": [str(exc)]}) from None
@@ -300,7 +324,11 @@ async def wires_evaluate(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
 
 @router.post("/api/wires/recommend")
 async def wires_recommend(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
-    """Size the smallest catalog wire that satisfies the constraints."""
+    """Size the smallest catalog wire that satisfies the constraints.
+
+    Accepts an optional ``weather`` object (see ``/api/wires/evaluate``); when
+    present the gauge is sized for that day's conditions.
+    """
     try:
         rec = recommend_gauge(
             current_a=float(body["current_a"]),
@@ -310,6 +338,7 @@ async def wires_recommend(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
             material=str(body.get("material", "copper")),
             ambient_c=float(body.get("ambient_c", 25.0)),
             round_trip=bool(body.get("round_trip", True)),
+            weather=_weather_from_body(body),
         )
     except (ValueError, KeyError) as exc:
         raise HTTPException(status_code=400, detail={"errors": [str(exc)]}) from None
