@@ -1,16 +1,41 @@
 # Architecture
 
+Simura is a physics-based digital-twin **platform** built from independent
+simulation **components**. Each component is a self-contained physics library;
+they share one framework — a twin core (REST + WebSocket API over MQTT +
+TimescaleDB), a live dashboard, hardware connectors, and a validation approach.
+
 ## Guiding principles
 
-1. **One asset, done deeply.** A faithful battery twin beats a shallow generic
-   "platform." Depth earns trust and contributors.
-2. **A stable telemetry contract is the system's spine.** Everything downstream
-   (transport, storage, dashboard, ML) consumes `PackTelemetry` and nothing
-   else. The physics can evolve freely behind it.
-3. **The simulator and the twin are separate things.** The simulator *is* a
-   stand-in physical asset. The twin ingests telemetry — it must not care
-   whether that telemetry came from the simulator or a real BMS. This is what
-   lets Component 6 (real hardware) drop in without rewrites.
+1. **Depth first, then breadth.** A component earns trust by being faithful before
+   the next one is started, so each is built out deeply and left runnable + tested
+   before Simura grows sideways. Breadth comes from *adding* components, never from
+   thinning any one of them into a shallow "generic platform."
+2. **Each component is an independent physics library.** `simura.sim` (batteries),
+   `simura.wires` (conductors) and `simura.weather` have **no** cross-component
+   dependencies — that independence is what lets them be reused or composed
+   freely, and unit-tested with no infrastructure.
+3. **A stable telemetry contract is each component's spine.** Everything
+   downstream of the battery component consumes `PackTelemetry`; the wire
+   component's is `WireTelemetry`. Nothing downstream reaches past the contract, so
+   the physics behind it can evolve freely.
+4. **The simulator and the twin are separate things.** A simulator *is* a stand-in
+   physical asset. The twin ingests telemetry — it must not care whether that came
+   from the simulator or real hardware. This is what lets Component 6 (real BMS
+   connectors) drop in without rewrites.
+
+## Build order
+
+Simura is built one component at a time (see the [roadmap](roadmap.md)). The
+sections below trace that order. **Components 1–7** built out the **Batteries**
+component together with the shared framework (twin core, dashboard, analytics,
+connectors, fleet). **Components 8–11** extended batteries — validation against
+open datasets, a system [builder](builder.md), fleet [lifecycle](dashboard.md)
+control, and [weather](weather.md) coupling — each documented on its own page.
+**Component 12** is the first *second* component: [Wires](wires.md), covered at
+the end of this doc.
+
+## The Batteries component
 
 ## Component 1 — Simulator (implemented)
 
@@ -257,5 +282,50 @@ open either way.
 
 ### What's next (remaining Component 7)
 
-Helm/K8s manifests, a docs site (mkdocs), a contribution guide, and expanded
-examples. See the [roadmap](roadmap.md).
+The docs site (mkdocs), contribution guide, and expanded examples have landed;
+Helm/K8s manifests remain. See the [roadmap](roadmap.md).
+
+## The Wires component
+
+## Component 12 — Wires (implemented)
+
+The first *second* component: conductors, not batteries. `simura.wires` is a
+reusable, battery-agnostic library with the same shape as the battery side — a
+config-vs-state split, a stable telemetry contract, and pure planning logic — but
+it models a wire's electro-thermal behaviour and answers the questions an engineer
+asks before pulling cable.
+
+```
+   WireSpec ──▶ Wire (state: temperature)          evaluate_run / recommend_gauge
+   (config)      • R(T) = ρ₂₀·(1+α·(T−20))·L/A  ─▶   • ampacity / drop / temp check
+                 • ΔV = I·R,  loss = I²R              • smallest adequate gauge
+                 • dT/dt = (I²R − k_cool·ΔT)/C_th
+                       │
+                       ├─▶ WireSimulator ─▶ WireTelemetry   (transient, generator)
+                       ├─▶ WireNetwork.solve() ─▶ nodal analysis (multi-node DC)
+                       └─▶ validation ─▶ % error vs published DC-resistance standards
+```
+
+### Modules (`src/simura/wires/`)
+
+| File | Responsibility |
+|------|----------------|
+| `wire.py` | `WireSpec` (serializable *what*) + `Wire` (temperature state + physics). |
+| `catalog.py` | Conductor materials, AWG↔area, insulation classes, and off-the-shelf `WireType`s. |
+| `telemetry.py` | `WireTelemetry` contract + `snapshot()`. |
+| `faults.py` | Wiring faults (corrosion, loose joint, damage, ageing, ground fault) via the same `FaultEffect` accumulator as the battery side. |
+| `profiles.py` / `simulator.py` | Current profiles and a `WireSimulator` generator (mirrors the battery `Simulator`). |
+| `planning.py` | `evaluate_run` / `recommend_gauge` — the "is this run OK / what gauge?" checks, as a list of problems (never a crash). |
+| `network.py` | `WireNetwork` — multi-node DC operating point by nodal analysis, iterating resistance ↔ temperature to a fixed point. |
+| `validation/` | Validate predicted DC resistance against published standards (annealed copper, hard-drawn aluminium) or a user CSV — the conductor analog of the battery [validation](validation.md) pipeline. |
+
+### How it plugs into the framework
+
+The wire library is **pure compute** — it has no running "asset" to stream, so it
+doesn't touch MQTT or the database. Instead the twin core exposes it over
+stateless endpoints (`/api/wires/catalog`, `/evaluate`, `/recommend`, `/network`,
+`/validation/*`), and the dashboard's **Wires** component (a wiring planner and a
+validation view) calls them directly. Same FastAPI service, same dashboard shell,
+same optional API-key guard as the battery component — the framework is shared,
+the physics is the component's own.
+

@@ -1,44 +1,67 @@
 # Simura
 
-**An open, physics-based digital twin for battery energy storage systems (BESS).**
+**An open, physics-based digital-twin platform — built component by component.**
 
-_An open digital-twin platform — expanding to model systems across industries,
-component by component._
+Simura models real physical systems from first principles and serves them as
+live digital twins. Each **component** is an independent, physically faithful
+simulation; they share one framework — a twin core (REST + WebSocket API), a live
+dashboard, and a "replay against real reference data" validation approach — so a
+new component plugs its own physics into machinery that already exists.
 
-Simura simulates a battery — from a single cell to a full rack — with real
-electro-thermal dynamics, cell-to-cell imbalance, and *injectable faults*, then
-streams the same telemetry a real Battery Management System (BMS) would. Clone
-it and you have a living battery on your laptop: no hardware, no lab, no fire.
+Two components exist today:
 
-> ⚠️ Early-stage hobby project with industrial ambitions. Components 1 (physics
-> simulator), 2 (twin core: MQTT + TimescaleDB + REST/WebSocket API), 3 (live
-> React dashboard), 4 (peer-consensus anomaly detection with early warning), 5
-> (fault diagnosis, state-of-health, RUL & safety), and 6 (real-hardware
-> connectors: Modbus / OPC-UA / MQTT) are done and tested, as are Component 8
-> (validation against open battery datasets), Component 9 (build your own
-> system), Component 10 (run/pause/resume/delete systems from the fleet), and
-> Component 11 (weather-driven environmental coupling, as a reusable package), and
-> Component 12 (a reusable **wire** simulation & wiring-planning library, with
-> validation of the conductor model against published DC-resistance standards).
-> Component 7 (fleet rollup + optional API-key auth) is underway. See the
+- **🔋 Batteries (BESS)** — the flagship. Simulate a battery from a single cell to
+  a full rack with real electro-thermal dynamics, cell-to-cell imbalance, and
+  *injectable faults*, streamed as the same telemetry a real Battery Management
+  System (BMS) would emit — then detect anomalies, diagnose faults, and estimate
+  state-of-health across a whole fleet.
+- **🔌 Wires** — a reusable, battery-agnostic conductor library: resistance,
+  voltage drop, ohmic loss and electro-thermal heating, a catalog of real wire
+  types, a wiring planner (ampacity / voltage-drop / gauge sizing), a multi-node
+  network solver, and validation against published conductor standards.
+
+Clone it and you have living hardware on your laptop: no lab, no rig, no fire.
+
+> ⚠️ Early-stage hobby project with industrial ambitions. The **Batteries**
+> component is the most complete: physics simulator, twin core (MQTT +
+> TimescaleDB + REST/WebSocket), live React dashboard, peer-consensus anomaly
+> detection, fault diagnosis / state-of-health / RUL / safety, real-hardware
+> connectors (Modbus / OPC-UA / MQTT), validation against open datasets, a system
+> builder, fleet lifecycle control, and weather coupling. The **Wires** component
+> is a reusable library with a wiring planner and validation against published
+> DC-resistance standards. Fleet rollup + optional API-key auth are underway; more
+> components (mechanical, thermal, power-electronics) are planned. See the
 > [roadmap](docs/roadmap.md).
 
 ## Why
 
-Battery health and safety is one of the most valuable digital-twin use cases in
-energy today — state-of-charge, state-of-health, and thermal-runaway early
-warning are worth real money and prevent real fires. But you can't learn or
-prototype on a real 1 MWh rack. Simura gives everyone a physically faithful,
-fully controllable battery to build diagnostics, dashboards, and ML on top of.
+A physics-based digital twin — a faithful software model you can run, break, and
+learn from without touching real hardware — is one of the highest-value tools in
+industrial software. Simura makes them **open and approachable**: the core of
+every component is pure Python + NumPy, unit-tested with no broker, database, or
+hardware required.
+
+Batteries came first because battery health and safety is worth real money and
+prevents real fires — state-of-charge, state-of-health, and thermal-runaway early
+warning on a system you can't safely prototype on a real 1 MWh rack. But the
+architecture is deliberately **general**: each new component (wiring today;
+mechanical, thermal, and power-electronics parts later) is an independent physics
+library that plugs into the same twin core, dashboard, and validation approach.
 
 ## Quick start
 
-**The simulator alone** (just needs numpy):
+**A component's library alone** (just needs numpy):
 
 ```bash
 pip install -e .
+
+# Batteries
 python examples/run_basic.py            # healthy pack, daily charge/discharge cycle
 python examples/run_basic.py --fault    # inject an internal short + thermal runaway
+
+# Wires
+python examples/wire_planning.py        # check a run, size a gauge, solve a network
+python examples/wire_thermal.py         # watch an undersized conductor overheat
 ```
 
 **The full twin** (broker + TimescaleDB + twin core + a simulated asset):
@@ -49,16 +72,23 @@ docker compose -f deploy/docker-compose.yml up --build
 
 Then open:
 
-- **Dashboard** — <http://localhost:8080> — opens on a **fleet overview** (every
-  system rolled up to one status, worst-first); click a card to drill into that
-  pack's live cell heatmap, trends, and fault timeline.
+- **Dashboard** — <http://localhost:8080> — opens on a landing of **component
+  cards** (Batteries / Wires). Pick **Batteries** for the fleet overview (every
+  system rolled up worst-first; click a card to drill into a pack's live cell
+  heatmap, trends, and fault timeline), or **Wires** for the wiring planner and
+  conductor-model validation.
 - **API docs** — <http://localhost:8000/docs>
 
+> First run after a rename or a DB name change? Postgres only initializes its user
+> and database on a **fresh** volume, so wipe the old one once:
+> `docker compose -f deploy/docker-compose.yml down -v` before `up`.
+
 ```bash
-curl localhost:8000/api/fleet                         # whole-fleet rollup
+curl localhost:8000/api/fleet                         # whole-fleet rollup (batteries)
 curl localhost:8000/api/systems                       # twin registry
 curl localhost:8000/api/systems/bess-01/state         # latest frame
 curl "localhost:8000/api/systems/bess-01/history?minutes=10&bucket_s=5"
+curl localhost:8000/api/wires/catalog                 # wire component (pure compute)
 # live stream:  ws://localhost:8000/ws/systems/bess-01
 ```
 
@@ -84,18 +114,7 @@ To develop the dashboard with hot reload (against a running twin core):
 cd dashboard && npm install && npm run dev   # http://localhost:5173
 ```
 
-**Connect real hardware** — point a connector at a device with a config file (no
-code). To try it without hardware, run a simulated Modbus BMS first:
-
-```bash
-python -m simura.connect.devsim --protocol modbus --port 5020
-python -m simura.connect --config examples/connectors/modbus.yaml
-```
-
-Connectors for **Modbus TCP**, **OPC-UA**, and an **MQTT bridge** (foreign JSON
-schema) all emit the same telemetry envelope, so the twin treats real hardware
-and the simulator identically. The default `docker compose` stack includes a
-Modbus device + connector as the `bess-modbus-01` system.
+### Batteries: use the library directly
 
 ```python
 from simura.sim import Simulator, PackConfig, ChargeDischargeCycle, InternalShort
@@ -109,10 +128,23 @@ for telemetry in sim.run():          # one PackTelemetry per timestep
     print(telemetry.pack_soc, telemetry.max_temp_c)
 ```
 
-**Validate against real battery data** — check the physics against open,
-publicly-licensed datasets (NASA, Oxford, CALCE, Sandia, Stanford–MIT–TRI, …).
-Simura ships a *catalog* (with licenses + citations) and format loaders, plus a
-bundled **synthetic** sample so it runs offline:
+**Connect real hardware** — point a connector at a device with a config file (no
+code). To try it without hardware, run a simulated Modbus BMS first:
+
+```bash
+python -m simura.connect.devsim --protocol modbus --port 5020
+python -m simura.connect --config examples/connectors/modbus.yaml
+```
+
+Connectors for **Modbus TCP**, **OPC-UA**, and an **MQTT bridge** (foreign JSON
+schema) all emit the same telemetry envelope, so the twin treats real hardware
+and the simulator identically. The default `docker compose` stack includes a
+Modbus device + connector as the `bess-modbus-01` system.
+
+**Validate the battery physics** against open, publicly-licensed datasets (NASA,
+Oxford, CALCE, Sandia, Stanford–MIT–TRI, …). Simura ships a *catalog* (with
+licenses + citations) and format loaders, plus a bundled **synthetic** sample so
+it runs offline:
 
 ```bash
 python -m simura.validate --list                       # browse the catalog
@@ -120,12 +152,11 @@ python -m simura.validate --dataset demo-synthetic --fit   # offline demo
 python -m simura.validate --dataset oxford-degradation --file cell1.mat --fit
 ```
 
-The right OCV curve is picked per chemistry (NMC / LFP / LCO / NCA). Or upload your
-own download straight into the dashboard's **Validation** tab and see the
-measured-vs-model overlay in the browser.
+The right OCV curve is picked per chemistry (NMC / LFP / LCO / NCA). Or upload
+your own download straight into the dashboard's **Validation** tab.
 
-**Build your own system** — design a battery system (chemistry, topology, load
-profile, faults), preview it offline, then stream it into the twin:
+**Build your own battery system** — design chemistry, topology, load profile and
+faults, preview it offline, then stream it into the twin:
 
 ```bash
 python -m simura.builder --example > my-system.json   # edit it (or use the Build tab)
@@ -133,7 +164,24 @@ python -m simura.builder --preview my-system.json      # SoC, peak temp, energy,
 python -m simura.publisher --spec my-system.json --speed 10 --loop   # go live
 ```
 
+### Wires: plan and validate conductors
+
+```python
+from simura.wires import WireSpec, evaluate_run, recommend_gauge
+
+evaluate_run(WireSpec(awg=12, length_m=20), current_a=15,
+             system_voltage_v=12, round_trip=True)   # ampacity / drop / temp check
+recommend_gauge(current_a=15, length_m=20, system_voltage_v=12, max_drop_pct=3)
+```
+
+```bash
+python -m simura.wires --recommend --current 15 --length 20 --voltage 12 --max-drop 3
+python -m simura.wires.validation --standard copper-annealed-20c   # vs a published standard
+```
+
 ## What's modeled
+
+### Batteries component
 
 - **Electrical** — 1st-order Thevenin equivalent circuit (OCV–SoC curve, ohmic +
   polarization resistance) per cell, with *exact* parallel-group current sharing.
@@ -144,22 +192,43 @@ python -m simura.publisher --spec my-system.json --speed 10 --loop   # go live
   sensor drift — each targetable to any cell, on any schedule, and composable.
 - **Anomaly detection** — peer-consensus robust z-scores flag a cell drifting from
   its siblings *before* it crosses any absolute limit (early warning).
-- **Diagnosis & prognosis** — classifies the fault type (internal short vs. cooling
-  loss vs. resistance growth vs. sensor fault vs. thermal runaway), estimates
-  state-of-health and time-to-critical, and raises a safety alarm.
+- **Diagnosis & prognosis** — classifies the fault type, estimates state-of-health
+  and time-to-critical, and raises a safety alarm.
 - **Validation** — replays real open-dataset current through the model and reports
-  terminal-voltage error (RMSE/MAE), so the physics is checked against measured
-  cells rather than taken on faith. See [docs/validation.md](docs/validation.md).
-- **System builder** — design your own battery system (chemistry, topology, load
-  profile, faults) as a spec, preview it offline, then stream it live with one
-  command. See [docs/builder.md](docs/builder.md).
-- **Lifecycle control** — the twin core can run simulations itself and
-  **start / pause / resume / delete** them from the fleet; real-time feeds are
-  ingest-only and Delete-able. Choose sim or real-time per system.
+  terminal-voltage error (RMSE/MAE). See [docs/validation.md](docs/validation.md).
+- **System builder** — design a battery system as a spec, preview it offline, then
+  stream it live. See [docs/builder.md](docs/builder.md).
+- **Lifecycle control** — the twin core runs simulations itself and
+  **start / pause / resume / delete**s them from the fleet; real-time feeds are
+  ingest-only. Choose sim or real-time per system.
 - **Weather** — drive a pack's ambient temperature, wind cooling and solar heat
   load from real ([Open-Meteo](https://open-meteo.com), no API key) or synthetic
-  weather. Built as a **reusable, battery-agnostic package** (`simura.weather`).
-  See [docs/weather.md](docs/weather.md).
+  weather, as a reusable package (`simura.weather`). See [docs/weather.md](docs/weather.md).
+
+### Wires component
+
+- **Conductor physics** — `R(T) = ρ₂₀·(1 + α·(T−20))·L/A`, voltage drop `I·R`,
+  ohmic loss `I²R`, and a lumped electro-thermal node, with a catalog of real
+  materials, gauges and insulation classes.
+- **Wiring planner** — check a run against ampacity, voltage drop and the
+  insulation's temperature rating, or size the smallest adequate gauge.
+- **Network solver** — connect nodes with wire segments and solve the DC operating
+  point by nodal analysis, iterating resistance ↔ temperature to a fixed point.
+- **Validation** — check predicted DC resistance against published standards
+  (annealed copper, hard-drawn aluminium) or your own measured-resistance CSV.
+- **Reusable & battery-agnostic** (`simura.wires`) — knows conductors and
+  electrical physics, not batteries. See [docs/wires.md](docs/wires.md).
+
+### The platform (shared across components)
+
+- **Twin core** — a FastAPI service: live state + history (REST), a per-system
+  live stream (WebSocket), MQTT ingest into TimescaleDB, and optional API-key auth.
+- **Dashboard** — a React + TypeScript + Recharts SPA that opens on component
+  cards and scopes its navigation to the component you pick.
+- **Connectors** — Modbus / OPC-UA / MQTT bridges that emit the same telemetry
+  envelope as the simulator, so real hardware and simulation are interchangeable.
+- **Component shape** — every component is an independent, unit-tested physics
+  library first, then thin wiring into the twin core and dashboard.
 
 ## Documentation
 
@@ -176,15 +245,18 @@ Start with [Getting started](docs/getting-started.md), the
 
 ## Roadmap
 
-Physics simulator ✅ → twin core + time-series store → live dashboard → anomaly
-detection → diagnosis / remaining-useful-life / safety → real-hardware
-connectors (MQTT/OPC-UA/Modbus) → fleet & deployment. Full detail in
+The **Batteries** component is built out end to end (physics → twin core →
+dashboard → anomaly detection → diagnosis/RUL/safety → hardware connectors →
+fleet, validation, builder, lifecycle, weather). The **Wires** component adds a
+reusable conductor library with planning and validation. Next: fleet & deployment
+hardening, and new physics components. Full detail in
 [docs/roadmap.md](docs/roadmap.md); design in
 [docs/architecture.md](docs/architecture.md).
 
 ## Contributing
 
-Issues and PRs welcome. Good first areas: new cell chemistries (LFP OCV curves),
-new fault types, and load profiles from real duty cycles — each slots into an
-[example](examples/README.md). See [CONTRIBUTING.md](CONTRIBUTING.md). Licensed
-under **Apache-2.0**.
+Issues and PRs welcome. Good first areas span both components — new cell
+chemistries (LFP OCV curves), fault types, and load profiles on the battery side;
+new conductor materials, insulation classes, and reference resistance standards on
+the wire side — each slots into an [example](examples/README.md). See
+[CONTRIBUTING.md](CONTRIBUTING.md). Licensed under **Apache-2.0**.

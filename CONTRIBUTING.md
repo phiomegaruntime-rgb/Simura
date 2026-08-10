@@ -1,9 +1,11 @@
 # Contributing to Simura
 
-Thanks for your interest! Simura is an open, physics-based digital twin for
-battery energy storage systems (BESS). It's built to be approachable: the core
-libraries are pure Python + NumPy and unit-tested with no infrastructure, so you
-can be productive without a broker, a database, or real hardware.
+Thanks for your interest! Simura is an open, physics-based **digital-twin
+platform**, built from independent simulation **components** — a full Batteries
+(BESS) twin and a reusable Wires (conductor) library today, with more to come.
+It's built to be approachable: the core of every component is pure Python + NumPy,
+unit-tested with no infrastructure, so you can be productive without a broker, a
+database, or real hardware.
 
 By participating you agree to uphold a respectful, harassment-free environment.
 Be kind, assume good faith, and keep discussion technical.
@@ -11,16 +13,23 @@ Be kind, assume good faith, and keep discussion technical.
 ## How the project is built
 
 Simura is built **one component at a time**, and each component leaves the repo
-in a runnable, tested state (see the [roadmap](docs/roadmap.md)). Two principles
+in a runnable, tested state (see the [roadmap](docs/roadmap.md)). Three principles
 shape almost every design decision — please keep them in mind when contributing:
 
-1. **A stable telemetry contract is the spine.** Everything downstream consumes
-   `PackTelemetry` and nothing else. The physics can evolve freely behind it.
-2. **The interesting logic lives in a pure library.** Detection, health, fleet
-   rollup, and hardware decoding are all pure functions over plain data,
-   unit-tested against the simulator's scenarios. Infrastructure (FastAPI, MQTT,
-   asyncpg) is thin wiring on top. New logic should follow the same shape so it's
-   testable without standing anything up.
+1. **Each component is an independent physics library first.** A component
+   (`simura.sim`, `simura.wires`, `simura.weather`, …) is a self-contained,
+   domain-focused library with no cross-component dependencies — that
+   independence is what lets components be composed or reused freely. Wiring it
+   into the twin core and dashboard comes *after* the library stands on its own.
+2. **A stable telemetry contract is each component's spine.** Everything
+   downstream of the battery component consumes `PackTelemetry`; the wire
+   component's is `WireTelemetry`. Nothing downstream reaches past the contract,
+   so the physics behind it can evolve freely.
+3. **The interesting logic lives in a pure library.** Detection, health, fleet
+   rollup, hardware decoding, wiring planning, and validation are all pure
+   functions over plain data, unit-tested against the simulators' scenarios.
+   Infrastructure (FastAPI, MQTT, asyncpg) is thin wiring on top. New logic should
+   follow the same shape so it's testable without standing anything up.
 
 The [architecture doc](docs/architecture.md) walks through each component.
 
@@ -68,18 +77,23 @@ pytest tests/test_fleet.py -q   # a single module
 ```
 
 The pure-library tests (`test_pack`, `test_detect`, `test_health`, `test_fleet`,
-`test_auth`) need only the `dev` extra. `test_connect` and `test_transport`
-additionally need the `connect`/`server` extras — if you haven't installed them,
-those two modules will fail to import, which is expected.
+`test_auth`, `test_wires`, `test_wire_validation`) need only the `dev` extra.
+`test_connect` and `test_transport` additionally need the `connect`/`server`
+extras — if you haven't installed them, those two modules will fail to import,
+which is expected.
 
 A change that touches a pure library **must** come with tests. The existing tests
-are the model: drive the simulator through a scenario, assert on the outcome (see
-[`tests/test_health.py`](tests/test_health.py)).
+are the model: drive the simulator through a scenario and assert on the outcome
+(see [`tests/test_health.py`](tests/test_health.py)), or replay a reference
+through the model and assert on the error (see
+[`tests/test_wire_validation.py`](tests/test_wire_validation.py)).
 
 ## Good first areas
 
-The simulator's extension points are designed to be easy first contributions —
-each one slots into an existing [example](examples/README.md):
+Each component's extension points are designed to be easy first contributions —
+most slot into an existing [example](examples/README.md).
+
+**Batteries:**
 
 - **New cell chemistry.** Add a measured OCV–SoC table (LFP, NCA, …) alongside
   `NMC_OCV_TABLE` in [`src/simura/sim/ocv.py`](src/simura/sim/ocv.py). See
@@ -92,7 +106,23 @@ each one slots into an existing [example](examples/README.md):
 - **New connector** (CAN bus, Modbus RTU) — implement a `SourceFrame` producer;
   the decode core does the rest. See [`examples/connectors/`](examples/connectors/README.md).
 
-Bigger items live on the [roadmap](docs/roadmap.md).
+**Wires:**
+
+- **New conductor material or insulation class** in
+  [`src/simura/wires/catalog.py`](src/simura/wires/catalog.py) (a resistivity +
+  temperature coefficient, or a temperature-rated insulation), plus a catalog
+  `WireType`.
+- **New wiring fault** in [`src/simura/wires/faults.py`](src/simura/wires/faults.py),
+  following the same `FaultEffect`-accumulator pattern as the battery side.
+- **New reference resistance standard** in
+  [`src/simura/wires/validation/standards.py`](src/simura/wires/validation/standards.py)
+  so the conductor model can be validated against another published table.
+
+Bigger items — including whole new physics **components** — live on the
+[roadmap](docs/roadmap.md). A new component starts as a standalone, domain-focused
+library modelled on `simura.wires` / `simura.weather` (pure, unit-tested, no
+cross-component dependencies), and is wired into the twin core and dashboard only
+once it stands on its own.
 
 ## Code style
 
