@@ -351,6 +351,43 @@ export interface WireCatalog {
   materials: string[];
   insulations: string[];
   wire_types: WireType[];
+  fault_types: string[];
+}
+
+// ---- Wire network (simura.wires.network) ----
+
+// A fault injected into one cable run: `{type, ...params}`, as the API takes it.
+export interface WireFaultInput {
+  type: string;
+  [param: string]: number | string;
+}
+
+// simura.wires.network.SegmentResult
+export interface SegmentResult {
+  id: string;
+  from_node: string;
+  to_node: string;
+  current_a: number;
+  voltage_drop_v: number;
+  power_loss_w: number;
+  temp_c: number;
+  resistance_ohm: number;
+  ampacity_a: number;
+  ampacity_utilization: number;
+  over_ampacity: boolean;
+  over_temp: boolean;
+  temp_rating_c: number;
+  leakage_a: number;
+  faulted: boolean;
+}
+
+// simura.wires.network.NetworkResult
+export interface NetworkResult {
+  node_voltages: Record<string, number>;
+  segments: SegmentResult[];
+  total_loss_w: number;
+  worst_segment: string | null;
+  problems: string[];
 }
 
 // A single instant's weather, as the planner accepts it.
@@ -438,4 +475,343 @@ export interface WireUploadOptions {
   resistanceCol?: string;
   refTempC?: number;
   resistanceUnit?: string;
+}
+
+// ---- Lights (simura.lights) ----
+
+// simura.lights.catalog.LightTechnology, as returned by /api/lights/catalog.
+export interface LightTechnology {
+  key: string;
+  name: string;
+  family: string;
+  spectrum_kind: string;
+  radiant_efficiency: number;
+  envelope_transmission: number;
+  control_gear_loss_frac: number;
+  design_filament_k: number;
+  optimum_ambient_c: number | null;
+  flux_temp_coeff_per_k: number;
+  warmup_s: number;
+  restrike_s: number;
+  dimmable: boolean;
+  min_dim_frac: number;
+  rated_life_h: number;
+  l70_h: number;
+  cri: number;
+  notes: string;
+}
+
+// simura.lights.catalog.LampType, as returned by /api/lights/catalog.
+export interface LampType {
+  id: string;
+  name: string;
+  technology: string;
+  family: string;
+  rated_power_w: number;
+  rated_flux_lm: number;
+  published_efficacy_lm_per_w: number;
+  beam_angle_deg: number;
+  color_temp_k: number;
+  base: string;
+  notes: string;
+}
+
+export interface LightCatalog {
+  families: string[];
+  technologies: LightTechnology[];
+  lamp_types: LampType[];
+  fault_types: string[];
+  profile_types: string[];
+  control_types: string[];
+  tasks: Record<string, number>;
+}
+
+// A light source's spec, as the API accepts it.
+export interface LightSpecInput {
+  lamp_type?: string;
+  technology?: string;
+  power_w?: number;
+  beam_angle_deg?: number;
+  ambient_temp_c?: number;
+  operating_hours_h?: number;
+  dirt_depreciation_frac?: number;
+}
+
+export interface LightFaultInput {
+  type: string;
+  start_s?: number;
+  end_s?: number;
+  [param: string]: number | string | undefined;
+}
+
+// simura.lights.photometry.RoomLighting
+export interface RoomLighting {
+  average_lux: number;
+  total_flux_lm: number;
+  room_index: number;
+  utilisation_factor: number;
+  light_loss_factor: number;
+  power_w: number;
+  power_density_w_per_m2: number;
+  efficacy_lm_per_w: number;
+  lux_per_w_per_m2: number;
+}
+
+// simura.lights.planning.InstallationAssessment
+export interface InstallationAssessment {
+  lamp_id: string | null;
+  n_luminaires: number;
+  target_lux: number;
+  maintained_lux: number;
+  initial_lux: number;
+  flux_per_luminaire_lm: number;
+  power_w: number;
+  power_density_w_per_m2: number;
+  efficacy_lm_per_w: number;
+  color_temp_k: number;
+  cri: number;
+  room: RoomLighting;
+  lumen_maintenance: number;
+  ambient_temp_c: number | null;
+  annual_energy_kwh: number | null;
+  problems: string[];
+}
+
+export interface LampAlternative {
+  lamp_id: string;
+  name: string;
+  family: string;
+  n_luminaires: number;
+  power_w: number;
+  power_density_w_per_m2: number;
+  maintained_lux: number;
+  annual_energy_kwh: number | null;
+  efficacy_lm_per_w: number;
+  color_temp_k: number;
+  cri: number;
+  ok: boolean;
+  problems: string[];
+}
+
+// simura.lights.planning.Recommendation
+export interface LampRecommendation {
+  lamp_type: LampType | null;
+  n_luminaires: number;
+  assessment: InstallationAssessment | null;
+  rationale: string;
+  ok: boolean;
+  alternatives: LampAlternative[];
+}
+
+// simura.lights.lamp.OperatingPoint
+export interface LightOperatingPoint {
+  input_power_w: number;
+  source_power_w: number;
+  current_a: number;
+  voltage_v: number;
+  radiant_power_w: number;
+  luminous_flux_lm: number;
+  efficacy_lm_per_w: number;
+  ler_lm_per_w: number;
+  color_temp_k: number;
+  source_temp_c: number;
+  visible_fraction: number;
+  lumen_maintenance: number;
+  warmup_frac: number;
+  lit: boolean;
+}
+
+// POST /api/lights/spectrum
+export interface SpectrumResponse {
+  wavelength_nm: number[];
+  relative_power: number[];
+  operating_point: LightOperatingPoint;
+  chromaticity: { x: number; y: number };
+  spectral_coverage: number;
+  published_cri: number;
+  technology: LightTechnology;
+  published_flux_lm: number;
+}
+
+// simura.lights.layout.LuminaireResult
+export interface LuminaireResult {
+  id: string;
+  x_m: number;
+  y_m: number;
+  height_m: number;
+  lit: boolean;
+  input_power_w: number;
+  luminous_flux_lm: number;
+  efficacy_lm_per_w: number;
+  color_temp_k: number;
+  source_temp_c: number;
+  lumen_maintenance: number;
+  peak_lux_below: number;
+}
+
+// simura.lights.layout.LayoutResult
+export interface LayoutResult {
+  average_lux: number;
+  min_lux: number;
+  max_lux: number;
+  uniformity: number;
+  diversity: number;
+  total_power_w: number;
+  power_density_w_per_m2: number;
+  area_m2: number;
+  grid: number[][];
+  grid_x_m: number[];
+  grid_y_m: number[];
+  luminaires: LuminaireResult[];
+  direct_average_lux: number;
+  indirect_lux: number;
+  daylight_lux: number;
+  target_lux: number;
+  problems: string[];
+}
+
+// simura.lights.telemetry.LightTelemetry
+export interface LightTelemetry {
+  time_s: number;
+  drive: number;
+  lit: boolean;
+  input_power_w: number;
+  current_a: number;
+  voltage_v: number;
+  luminous_flux_lm: number;
+  efficacy_lm_per_w: number;
+  radiant_power_w: number;
+  color_temp_k: number;
+  source_temp_c: number;
+  illuminance_lux: number;
+  lumen_maintenance: number;
+  warmup_frac: number;
+  operating_hours_h: number;
+  switch_cycles: number;
+  over_temp: boolean;
+  below_target: boolean;
+  weather?: WeatherSample | null;
+  daylight_lux?: number | null;
+}
+
+// POST /api/lights/simulate
+export interface LightSimulationResult {
+  frames: LightTelemetry[];
+  summary: {
+    n_frames: number;
+    energy_kwh: number;
+    lamp_hours: number;
+    switch_cycles: number;
+    final_flux_lm: number;
+    final_source_temp_c: number;
+  };
+}
+
+// ---- Light validation (simura.lights.validation) ----
+
+// simura.lights.validation.standards.LightStandardSpec (as returned by the API)
+export interface LightStandardSpec {
+  id: string;
+  name: string;
+  institution: string;
+  quantity: string;
+  unit: string;
+  x_label: string;
+  x_unit: string;
+  license: string;
+  license_url: string;
+  citation: string;
+  homepage_url: string;
+  what_it_validates: string[];
+  notes: string;
+  n_points: number;
+}
+
+export interface LightValidationMetrics {
+  rmse: number;
+  mae: number;
+  max_abs: number;
+  mean_bias: number;
+  rmse_pct: number;
+  mae_pct: number;
+  max_abs_pct: number;
+  mean_bias_pct: number;
+}
+
+// simura.lights.validation.engine.LightValidationReport
+export interface LightValidationReport {
+  standard_id: string;
+  quantity: string;
+  n_points: number;
+  unit: string;
+  x_label: string;
+  x_unit: string;
+  data_source: string;
+  metrics: LightValidationMetrics;
+  overlay: {
+    x: number[];
+    key: string[];
+    published: number[];
+    model: number[];
+    error: number[];
+    error_pct: number[];
+  };
+  notes: string;
+  filename?: string;
+}
+
+// simura.lights.validation.live.LiveDaylightReport — the one reference that is
+// different every time you run it.
+export interface LiveDaylightReport {
+  latitude: number;
+  longitude: number;
+  source: string;
+  n_hours: number;
+  n_clear_hours: number;
+  window_start: number;
+  window_end: number;
+  metrics: Record<string, number>;
+  overlay: {
+    timestamp: number[];
+    elevation_deg: number[];
+    measured_lux: number[];
+    model_lux: number[];
+    clearness_index: number[];
+  };
+  envelope_violations: number;
+  notes: string;
+}
+
+// Options for a user-supplied photometric-CSV validation.
+export interface LightUploadOptions {
+  quantity?: string;
+  xCol?: string;
+  valueCol?: string;
+  keyCol?: string;
+}
+
+// simura.lights.lamp.SupplyPoint, as POST /api/lights/operate returns it —
+// what a lamp does on a supply that is not at its rated voltage.
+export interface LightOperateResult {
+  supply_voltage_v: number;
+  nominal_voltage_v: number;
+  voltage_ratio: number;
+  /** Current drawn FROM the supply. Not point.current_a for anything with gear. */
+  supply_current_a: number;
+  /** Is there a driver or ballast in front of it? */
+  regulated: boolean;
+  /** Gear below its minimum input voltage: out, with no dimming on the way down. */
+  dropped_out: boolean;
+  over_voltage: boolean;
+  point: LightOperatingPoint;
+  illuminance_lux: number;
+  beam_angle_deg: number;
+  cri: number;
+  family: string;
+  technology: string;
+}
+
+export interface LightOperateResponse {
+  lights: Record<string, LightOperateResult>;
+  daylight_lux: number;
 }

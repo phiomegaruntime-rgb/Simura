@@ -380,3 +380,163 @@ hot day). All three examples run and `mkdocs build --strict` stays clean.
 > — cells + wires coupled by nodal analysis) and the *DC-motor* mechanical part
 > that built on it were removed from the project, along with their dashboard views,
 > API endpoints, examples and docs.
+
+## Component 13 — Reserved 🔒
+
+This component number is taken by work that is **not part of the open-source
+distribution**. It is developed separately and is not included in this
+repository; nothing here depends on it, and the dashboard builds and runs
+complete without it.
+
+The platform work it drove *is* open source, and shipped in v0.15:
+
+### Fault control and network faults (v0.15)
+
+- [x] A full fault resource on a running simulation: `POST /api/systems/{id}/faults`
+  injects one effective on the next timestep, `GET` lists what's attached,
+  `DELETE .../faults/{index}` repairs **one** (fix a cell without fixing the pack),
+  and `DELETE .../faults` repairs everything. `SimManager` now holds the live
+  `Simulator`, stamps each fault with the simulator's current time, appends it to
+  the spec as well so it survives the run loop's duration rollover, and republishes
+  the retained config. The spec's fault list and the simulator's are built and
+  appended in lockstep, which is what makes a position a usable handle.
+- [x] Per-segment **faults in the network solve**: `Segment.faults` +
+  `WireNetwork.solve(elapsed_s=...)`, a declarative `simura.wires.build_fault`,
+  and `faults` / `elapsed_s` on `POST /api/wires/network`. A fault changes the
+  conductance the network sees, so one loose joint starves the load beyond it.
+- [x] **Weather in the network solve**: `WireNetwork.solve(weather=..., coupling=...)`
+  and a `weather` body field on `POST /api/wires/network`, applying the existing
+  `WireEnvironmentCoupling` per segment (solar scaled by each run's own silhouette)
+  and derating ampacity for ambient — the same treatment `evaluate_run` already
+  gave a single run, now for a whole network. Weather rides the same `FaultEffect`
+  channels faults do, so the two compose with no special case.
+
+**Verified:** `test_simctl` (+8) covers a fault injected into a running sim
+reaching the targeted cell and making it the hottest in the pack, the "now" stamp,
+config republication, cell-bounds and unknown-type rejection, listing in order,
+removing one by index (leaving the spec and the live sim parallel), rejecting a
+bad index without losing anything, and — the one that matters — a repaired cell
+measurably cooling back down once its short is removed.
+`test_wires` (+13) covers a loose joint re-settling the whole network, lost
+cross-section derating a good run into an overload, aged insulation moving only
+the rating, a ground fault leaking past the load, corrosion developing with
+`elapsed_s`, and — importantly — that an unfaulted network is bit-for-bit what it
+was before faults existed; and, for weather, a hot day costing both voltage and
+headroom, wind cooling a run without crediting its rating, sun heating an idle
+one, weather and faults compounding, and the no-weather path being untouched.
+Full suite **189 pass**. The dashboard type-checks and builds.
+
+
+## Component 14 — Light simulation & lighting design ✅ (v0.16)
+
+**Goal.** The third standalone physics library, and the one where the useful
+output is not measured in watts at all. Model **every kind of light source** —
+LED to sodium arc — from its spectrum up, then answer the questions a lighting
+engineer actually asks, couple it to weather *and* daylight, and validate it
+against published photometry and the live sky.
+
+### The design decision everything follows from
+
+**Efficacy is computed, never looked up.** A source is a spectral power
+distribution; Planck's law and the CIE 1931 observer turn that into lumens,
+chromaticity and colour temperature. Nothing in the code says a dimmed filament
+goes orange, or that warm white loses to cool white, or that low-pressure sodium
+beats everything and renders no colour. All of it emerges — which is what makes
+the model predictive rather than a lookup table with extra steps.
+
+### What was built
+
+- [x] **`simura.lights.spectrum`** — Planck's law, the Wyman–Sloan–Shirley analytic
+  CIE colour-matching fit, luminous efficacy of radiation, chromaticity, McCamy
+  CCT with a Planckian-locus guard (so a green laser correctly has *no* colour
+  temperature), and SPD builders: blackbody, selective thermal (tungsten's
+  non-grey emissivity, worth ~50% more efficacy), Gaussian bands, arc line
+  spectra, and phosphor-converted white LED. Out-of-band infrared is tracked
+  explicitly, because a filament puts 90% of its power there and omitting it
+  would flatter every incandescent lamp by an order of magnitude.
+- [x] **`simura.lights.catalog`** — 14 technologies across 4 families
+  (incandescent/halogen; LED/high-CRI LED/laser diode; fluorescent/CFL/induction/
+  low-pressure sodium/neon; metal halide/high-pressure sodium/mercury vapour/
+  xenon arc) and 20 real lamps with published fluxes the model never consults.
+- [x] **`simura.lights.lamp`** — three electrical laws behind one photometric
+  chain. Filaments solve an energy balance by bisection with geometry back-solved
+  from the design point; junctions obey a diode law with droop and thermal
+  derating; arcs hold a fixed voltage with warm-up, restrike and vapour-pressure
+  response. LED phosphor blends are chosen by walking the curve of blends that
+  land on the Planckian locus — which is what binning really is.
+- [x] **`simura.lights.photometry`** — solid angle, candela, inverse-square with
+  Lambert's cosine, room index, utilisation factor, light loss factor, the lumen
+  method, and standard-practice task illuminances.
+- [x] **`simura.lights.planning`** — `evaluate_installation` / `recommend_lamp`,
+  checking illuminance, colour rendering and installed power, at the *end* of a
+  maintenance cycle by default. Returns every candidate ranked, because the trade
+  between technologies is the interesting part.
+- [x] **`simura.lights.layout`** — a split-flux illuminance field over a room:
+  geometry for the direct component and its shape, interreflection added
+  uniformly to match the lumen method. Reports the uniformity an average hides,
+  with per-luminaire fault injection.
+- [x] **`simura.lights.faults`** — the ways lighting actually fails, most of them
+  gradual: lumen depreciation, phosphor degradation, heatsink loss, driver fault,
+  supply sag, flicker, lens fouling, burnout.
+- [x] **`simura.lights.environment`** — weather reaching a luminaire through *two*
+  channels: thermally (ambient, wind, absorbed sun — moving LED and fluorescent
+  output in opposite directions) and optically (daylight illuminance from solar
+  geometry and a clear-sky model, driving photocell and daylight-harvesting
+  controls that layer on top of a schedule).
+- [x] **`simura.lights.simulator` / `profiles` / `telemetry` / `config`** — the
+  same shape as the wire and battery sides: a generator yielding one frame per
+  step, declarative builders for every fault, profile and control.
+
+### Validation ✅
+
+Five bundled standards, deliberately checking the model at five different depths
+rather than five variations of one:
+
+| Standard | What it checks | Result |
+| --- | --- | --- |
+| `cie-photopic-1931` | the analytic fit vs the tabulated CIE observer | RMSE 0.003 abs |
+| `blackbody-cct-locus` | Planck + chromaticity + McCamy (an exact reference) | 0.8% |
+| `lamp-efficacy-published` | the whole chain, 20 lamps, 4 families, 15× range | 6.5% |
+| `led-junction-derating` | the solid-state derating law | 0.9% |
+| `fluorescent-ambient-response` | the vapour-pressure response | 9.0% |
+
+Reports carry absolute **and** relative metrics, because `V(λ)` passes through
+0.0004 in the far violet where percent error is meaningless — so neither measure
+can flatter the model.
+
+- [x] **Real-time validation** (`--live`): the one reference in Simura that does
+  not ship with the repository. Fetches measured shortwave radiation for a real
+  place from Open-Meteo and checks the daylight model against it. Separates the
+  clear-hour metrics (the honest test of geometry and the efficacy constant) from
+  the all-hours error (which measures how cloudy the window was) and counts
+  envelope violations. ~13% clear-hour RMSE over London.
+- [x] **User uploads** — validate against your own integrating-sphere or datasheet
+  CSV, with relative curves renormalised so a file normalised at 40 °C is not
+  reported as error against a model normalised at 25 °C.
+
+### Twin core & dashboard ✅
+
+- [x] `GET /api/lights/catalog`, `POST /api/lights/{evaluate,recommend,layout,
+  spectrum,simulate}`, `GET /api/lights/validation/standards`,
+  `POST /api/lights/validation/{run,live,upload}` — all pure compute.
+- [x] A **Lights** component card with a lighting planner (space and task, check /
+  recommend / solve-the-field, ranked alternatives, an illuminance heatmap, and
+  each lamp's spectrum drawn in its own colours) and a **Validation** view with
+  the five standards plus the live-sky check and a place search.
+
+**Verified:** `test_lights` (75) covers the spectral core against literature
+anchors (2800 K → 15 lm/W, peak 95 lm/W at 6600 K, 555 nm → 683 lm/W), all four
+families' physics, faults, photometry, planning and layouts — and, most usefully,
+the *emergent* behaviours: dimming a filament costing far more light than power,
+a hotter filament being the more efficacious one, fluorescent and LED derating in
+opposite directions, warm white losing to cool white, and a hot HID lamp refusing
+to restrike. `test_light_validation` (24) covers every standard, the upload path,
+and the live daylight validation against a saved payload with no network — including
+that it separates cloud from model error and that polar night is not reported as a
+failure. Full suite **291 pass**. The dashboard type-checks and builds.
+
+### Backlog
+- Per-luminaire aiming and asymmetric (roadway) photometric distributions, real
+  IES/LDT photometric file import, a proper CIE Ra from the test-colour samples,
+  and glare metrics (UGR).
+

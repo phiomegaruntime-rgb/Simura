@@ -17,6 +17,10 @@ so you don't even need to `pip install` first.
 | [`wire_planning.py`](wire_planning.py) | The **Wires** component: check a run against ampacity / voltage drop / temperature, size the smallest adequate gauge, then solve a small multi-node network. |
 | [`wire_thermal.py`](wire_thermal.py) | Watch an **undersized conductor overheat** — a 14 AWG copper wire at 25 A climbs past its 90 °C insulation rating, while a correctly-sized 10 AWG run stays cool. |
 | [`wire_weather.py`](wire_weather.py) | **Weather-coupled conductor** — the same wire and current settle at very different temperatures on a still hot day vs. a windy or sunny one (the basis of dynamic line rating). |
+| [`light_planning.py`](light_planning.py) | The **Lights** component: check a lamp against a task, let the catalog pick one with every alternative ranked beside it, then solve the illuminance field — where an average of 500 lux hides bright pools and dark gaps. |
+| [`light_spectrum.py`](light_spectrum.py) | **Where efficacy comes from** — every technology's spectrum side by side, what dimming does to a filament (the light goes orange and the efficacy collapses), and the colour-versus-efficacy trade inside one LED. Nothing is looked up; it all falls out of Planck's law and the CIE observer. |
+| [`light_weather.py`](light_weather.py) | **Weather-coupled lighting** — the same ambient makes a fluorescent tube dim and an LED bright, a street light follows the real sunset on a photocell, and a daylit office dims against the sky. `--live` points it at a real place via Open-Meteo. |
+| [`field_station.py`](field_station.py) | **Every component on one site** — design an off-grid workshop end to end: the sky over it, the lamps that light it, the cable that feeds them, the voltage drop that comes *back* and changes the light, and the battery that carries the night. The one example where the components compose instead of standing alone. `--live` pulls the real sky from Open-Meteo. |
 | [`connectors/`](connectors/) | Config files for the real-hardware connectors (Modbus / OPC-UA / MQTT). See [connectors/README.md](connectors/README.md). |
 
 ```bash
@@ -30,6 +34,10 @@ python examples/weather_demo.py
 python examples/wire_planning.py
 python examples/wire_thermal.py
 python examples/wire_weather.py
+python examples/light_planning.py
+python examples/light_spectrum.py
+python examples/light_weather.py
+python examples/field_station.py
 ```
 
 These double as the friendliest **good first areas** for contributors: a new

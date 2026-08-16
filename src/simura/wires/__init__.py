@@ -34,7 +34,14 @@ from .catalog import (
     material_for,
     wire_type_for,
 )
-from .config import WIRE_MATERIALS, build_network, build_wire, catalog_options
+from .config import (
+    WIRE_FAULT_TYPES,
+    WIRE_MATERIALS,
+    build_fault,
+    build_network,
+    build_wire,
+    catalog_options,
+)
 from .environment import (
     WireEnvironmentCoupling,
     WireEnvironmentEffect,
@@ -109,9 +116,11 @@ __all__ = [
     "NetworkResult",
     # declarative
     "build_wire",
+    "build_fault",
     "build_network",
     "catalog_options",
     "WIRE_MATERIALS",
+    "WIRE_FAULT_TYPES",
     # environment / weather coupling
     "WireEnvironmentCoupling",
     "WireEnvironmentEffect",

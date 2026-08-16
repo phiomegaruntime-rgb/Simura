@@ -13,9 +13,11 @@ export type View =
   | "validation"
   | "build"
   | "wires"
-  | "wiresvalidation";
+  | "wiresvalidation"
+  | "lights"
+  | "lightsvalidation";
 
-export type SectionKey = "batteries" | "wires";
+export type SectionKey = "batteries" | "wires" | "lights";
 
 // A navigable destination within a section's sub-nav. "system" (the per-system
 // detail view) is reached by drilling into a card, not from the sub-nav.
@@ -68,6 +70,21 @@ export const SECTIONS: Section[] = [
       { key: "wiresvalidation", label: "Validation" },
     ],
   },
+  {
+    key: "lights",
+    label: "Lights",
+    tagline: "Lighting designer",
+    description:
+      "Every light source from LED to sodium arc, simulated from its spectrum up — then designed into a room, checked against the lux a task needs, and validated against published photometry and the live sky.",
+    contents: ["Lighting planner", "Spectra & lamps", "Validation"],
+    accent: "#4fc3f7",
+    icon: "💡",
+    landing: "lights",
+    nav: [
+      { key: "lights", label: "Lighting planner" },
+      { key: "lightsvalidation", label: "Validation" },
+    ],
+  },
 ];
 
 // Which section a view belongs to. The per-system detail view lives under Batteries.
@@ -78,6 +95,8 @@ const VIEW_SECTION: Record<Exclude<View, "home">, SectionKey> = {
   system: "batteries",
   wires: "wires",
   wiresvalidation: "wires",
+  lights: "lights",
+  lightsvalidation: "lights",
 };
 
 // The section a view belongs to, or null on the landing page.

@@ -24,7 +24,9 @@ from datetime import datetime, timezone
 from typing import Awaitable, Callable
 
 from ..builder import (
+    FaultSpec,
     SystemSpec,
+    build_fault,
     build_pack_config,
     build_sim_config,
     build_simulator,
@@ -66,6 +68,9 @@ class ManagedSim:
         self._gate = asyncio.Event()
         self._gate.set()
         self.run_state = STOPPED
+        # The live Simulator while the run loop is going, so faults can be
+        # injected into a system that is already running (None when stopped).
+        self.simulator = None
 
     @property
     def paused(self) -> bool:
@@ -145,6 +150,101 @@ class SimManager:
         for sim in list(self._sims.values()):
             await self._cancel(sim)
 
+    # -- fault injection --------------------------------------------------
+    async def inject_fault(self, system_id: str, fault: FaultSpec) -> FaultSpec:
+        """Inject a fault into a simulation *while it runs*.
+
+        Until now a fault could only be declared in the spec before the system
+        was built, so breaking a pack meant rebuilding it from t=0. Injection
+        instead appends to the two places a fault lives:
+
+        * the **running** :class:`~simura.sim.simulator.Simulator`'s fault list,
+          stamped with the simulator's current time so it takes effect on the very
+          next timestep -- the pack degrades from wherever it already is; and
+        * the **spec**, so the fault is part of the system's description from here
+          on -- it survives the run loop's rebuild when a run's duration rolls
+          over, and the updated config is republished (retained) so a late-joining
+          twin core or dashboard sees the faulted system as it now is.
+
+        ``fault.start_s`` is ignored and replaced with "now" in sim time. Returns
+        the stamped :class:`~simura.builder.spec.FaultSpec` that was applied.
+        """
+        sim = self._require(system_id)
+        stamped = FaultSpec(
+            type=fault.type,
+            series=fault.series,
+            parallel=fault.parallel,
+            start_s=float(getattr(sim.simulator, "t", 0.0)),
+            params=dict(fault.params),
+        )
+        self._check_cell(sim.spec, stamped)
+        built = build_fault(stamped)  # raises ValueError on an unknown type
+        if sim.simulator is not None:
+            sim.simulator.faults.append(built)
+        sim.spec.faults.append(stamped)
+        await self._publish_config(system_id, sim.spec)
+        log.info(
+            "injected %s fault at cell (%d, %d) of '%s' at t=%.1fs",
+            stamped.type,
+            stamped.series,
+            stamped.parallel,
+            system_id,
+            stamped.start_s,
+        )
+        return stamped
+
+    def faults(self, system_id: str) -> list[FaultSpec]:
+        """Every fault currently on a system, in the order they were applied.
+
+        That order is also the order of the live simulator's fault list -- both
+        are built from, and appended to, in lockstep -- which is what makes an
+        index a usable handle for :meth:`remove_fault`.
+        """
+        return list(self._require(system_id).spec.faults)
+
+    async def remove_fault(self, system_id: str, index: int) -> FaultSpec:
+        """Remove one fault by its position, from the running sim and the spec.
+
+        Repairing a single bad cell while leaving the rest of a pack's damage in
+        place is the difference between a maintenance action and starting over,
+        so this is deliberately finer-grained than :meth:`clear_faults`.
+        """
+        sim = self._require(system_id)
+        if not 0 <= index < len(sim.spec.faults):
+            raise ValueError(
+                f"no fault at index {index} (system has {len(sim.spec.faults)})"
+            )
+        removed = sim.spec.faults.pop(index)
+        # The live list is parallel to the spec's, so the same index is the same
+        # fault. Guarded anyway: a sim that crashed mid-run has no fault list.
+        if sim.simulator is not None and index < len(sim.simulator.faults):
+            sim.simulator.faults.pop(index)
+        await self._publish_config(system_id, sim.spec)
+        log.info("removed %s fault from '%s'", removed.type, system_id)
+        return removed
+
+    async def clear_faults(self, system_id: str) -> int:
+        """Repair a system: drop every fault, live and in the spec. Returns the count."""
+        sim = self._require(system_id)
+        n = len(sim.spec.faults)
+        sim.spec.faults.clear()
+        if sim.simulator is not None:
+            sim.simulator.faults.clear()
+        await self._publish_config(system_id, sim.spec)
+        return n
+
+    @staticmethod
+    def _check_cell(spec: SystemSpec, fault: FaultSpec) -> None:
+        """Reject a fault aimed at a cell the pack doesn't have."""
+        if not 0 <= fault.series < spec.series:
+            raise ValueError(
+                f"series index {fault.series} out of range (pack has {spec.series} modules)"
+            )
+        if not 0 <= fault.parallel < spec.parallel:
+            raise ValueError(
+                f"parallel index {fault.parallel} out of range (pack has {spec.parallel} slots)"
+            )
+
     # -- internals --------------------------------------------------------
     def _require(self, system_id: str) -> ManagedSim:
         sim = self._sims.get(system_id)
@@ -162,26 +262,45 @@ class SimManager:
                 pass
         sim.task = None
 
-    async def _run(self, system_id: str, sim: ManagedSim) -> None:
-        """Publish a sim's config + telemetry until cancelled (loops forever)."""
-        spec = sim.spec
-        pack_cfg = build_pack_config(spec)
-        sim_cfg = build_sim_config(spec)
-        config_payload = {
+    @staticmethod
+    def _config_payload(system_id: str, spec: SystemSpec) -> dict:
+        """The retained config message describing a system as it currently is."""
+        return {
             "system_id": system_id,
             "name": spec.name,
             "config": {
-                "pack": asdict(pack_cfg),
-                "sim": asdict(sim_cfg),
+                "pack": asdict(build_pack_config(spec)),
+                "sim": asdict(build_sim_config(spec)),
                 "chemistry": spec.chemistry,
                 "source": "simulation",
                 "spec": spec.to_dict(),
             },
         }
+
+    async def _publish_config(self, system_id: str, spec: SystemSpec) -> None:
+        """(Re)publish a system's retained config. Best-effort: never fatal."""
+        try:
+            await self._publish(
+                config_topic(system_id), json.dumps(self._config_payload(system_id, spec)), True
+            )
+        except Exception:  # pragma: no cover - broker hiccup must not fail the call
+            log.warning("could not publish config for %s", system_id)
+
+    async def _run(self, system_id: str, sim: ManagedSim) -> None:
+        """Publish a sim's config + telemetry until cancelled (loops forever)."""
+        spec = sim.spec
+        sim_cfg = build_sim_config(spec)
         try:
             while True:
-                await self._publish(config_topic(system_id), json.dumps(config_payload), True)
+                # Rebuilt each pass so a fault injected mid-run is carried into the
+                # next one (inject_fault appends to the spec as well as the sim).
+                await self._publish(
+                    config_topic(system_id),
+                    json.dumps(self._config_payload(system_id, spec)),
+                    True,
+                )
                 simulator = build_simulator(spec)
+                sim.simulator = simulator
                 # A live weather source fetches over HTTP on its first query; do
                 # that off the event loop so a managed sim never blocks the twin
                 # core. Later queries hit the provider's in-memory cache.
@@ -198,7 +317,9 @@ class SimManager:
                     if sim.speed > 0:
                         await asyncio.sleep(sim_cfg.dt_s / sim.speed)
         except asyncio.CancelledError:
+            sim.simulator = None
             raise
         except Exception:  # a bug in one sim must not take the twin core down
             log.exception("simulation '%s' crashed", system_id)
+            sim.simulator = None
             sim.run_state = STOPPED

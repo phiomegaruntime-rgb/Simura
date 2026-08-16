@@ -16,6 +16,10 @@ the MQTT **envelope** (`{system_id, timestamp, telemetry}`) — never the simula
 | `GET` | `/api/systems` | The twin registry (with `source`, `run_state`, `live`). |
 | `POST` | `/api/systems` | Create a **simulation** (from a spec, twin-core-run) or register a **real-time** system. |
 | `POST` | `/api/systems/{id}/start` \| `/pause` \| `/resume` | Control a simulation's run state (409 for real-time). |
+| `GET` | `/api/systems/{id}/faults` | Every fault on a simulation, in the order applied. A fault's position is its handle. |
+| `POST` | `/api/systems/{id}/faults` | Inject a fault into a **running** simulation (`{type, series, parallel, params}`), effective on its next timestep. 409 for real-time. |
+| `DELETE` | `/api/systems/{id}/faults/{index}` | Repair **one** fault by position — fix a cell without fixing the pack. |
+| `DELETE` | `/api/systems/{id}/faults` | Repair: drop every fault from the running simulation and its spec. |
 | `DELETE` | `/api/systems/{id}` | Purge a system: stop its sim, clear retained config, delete registry + history. |
 
 **Per system** (`{id}` = a `system_id`)
@@ -53,10 +57,27 @@ the MQTT **envelope** (`{system_id, timestamp, telemetry}`) — never the simula
 | `GET` | `/api/wires/catalog` | Conductor materials, insulation classes, and the selectable wire catalog. |
 | `POST` | `/api/wires/evaluate` | Check one run (`{spec, current_a, system_voltage_v?, max_drop_pct?, round_trip?}`) against ampacity / voltage drop / temperature. |
 | `POST` | `/api/wires/recommend` | Smallest catalog wire meeting the constraints for a current/length/voltage/drop. |
-| `POST` | `/api/wires/network` | Solve a multi-node wire network (`{nodes, segments}`). |
+| `POST` | `/api/wires/network` | Solve a multi-node wire network (`{nodes, segments, elapsed_s?, weather?}`); a segment may carry `faults`. |
 | `GET` | `/api/wires/validation/standards` | Catalog of published DC-resistance standards the wire model can be checked against. |
 | `POST` | `/api/wires/validation/run` | Validate the model against one bundled standard (`{standard_id}`): per-gauge percent error + published-vs-model curves. |
 | `POST` | `/api/wires/validation/upload` | Validate against a user's measured-resistance CSV (multipart: `file`, `material`, `awg_col`, `resistance_col`, `ref_temp_c`, `resistance_unit`). |
+| `GET` | `/api/lights/catalog` | Light technologies, lamps, fault/profile/control types, and task illuminance targets. |
+| `POST` | `/api/lights/evaluate` | Check a lighting design (`{spec, n_luminaires, length_m, width_m, mounting_height_m?, task?, maintenance_hours?, weather?}`) against illuminance, colour and installed power. |
+| `POST` | `/api/lights/recommend` | The catalog lamp meeting the target at the lowest installed power, plus every alternative ranked. |
+| `POST` | `/api/lights/layout` | Solve the illuminance field over a room (`{length_m, width_m, grid?/luminaires?, target_lux?, min_uniformity?, weather?}`); a luminaire may carry `faults`. |
+| `POST` | `/api/lights/spectrum` | One lamp's spectral power distribution and everything derived from it (`{spec, drive?, ambient_c?, bin_nm?}`). |
+| `POST` | `/api/lights/simulate` | Run one luminaire through time — warm-up, thermal settle, controls, faults (`{spec, profile?, control?, faults?, weather?, dt_s?, duration_s?}`). |
+| `GET` | `/api/lights/validation/standards` | Catalog of published photometric references the lighting model can be checked against. |
+| `POST` | `/api/lights/validation/run` | Validate against one bundled standard (`{standard_id}`): per-point error, absolute and relative. |
+| `POST` | `/api/lights/validation/live` | Validate the daylight model against **live** measured irradiance (`{latitude, longitude, hours?}`). The only route that reaches the network. |
+| `POST` | `/api/lights/validation/upload` | Validate against a user's photometric CSV (multipart: `file`, `quantity`, `x_col`, `value_col`, `key_col`). |
+
+**Weather**
+
+| Method | Path | Returns |
+|--------|------|---------|
+| `GET` | `/api/weather/places?q=` | Places matching a name — label, coordinates, and the **IANA timezone** (what makes a local clock possible). Proxies Open-Meteo's geocoding so the browser keeps talking to one origin. A failed lookup is `[]`, not a 500. |
+| `POST` | `/api/weather/sample` | Evaluate a weather spec (`{type, params}`) **right now**, with no system involved. `{"weather": null}` for `type: "none"`. Providers are cached per spec, so a live source fetches once rather than per call. |
 
 **Health**
 
@@ -66,6 +87,59 @@ the MQTT **envelope** (`{system_id, timestamp, telemetry}`) — never the simula
 
 Interactive docs are served at `/docs` (Swagger UI) when the twin core is
 running.
+
+### Injecting a fault into a running system
+
+Faults used to be spec-time only, so breaking a pack meant rebuilding it from
+`t=0`. `POST /api/systems/{id}/faults` instead appends to the two places a fault
+lives — the **running** simulator's fault list, stamped with the simulator's
+current time, and the **spec**, so it survives the run loop's duration rollover
+and is republished with the retained config:
+
+```bash
+curl -X POST localhost:8000/api/systems/my-bess-01/faults \
+  -H 'Content-Type: application/json' \
+  -d '{"type": "internal_short", "series": 3, "parallel": 0, "params": {"r_short_ohm": 1.0}}'
+```
+
+The pack degrades from wherever it already is. Fault types and their parameters
+are the ones `GET /api/builder/options` enumerates. A cell outside the pack's
+topology, or an unknown type, is a 400 with `errors`.
+
+`GET` the same path to list what's currently on a system. Faults come back in the
+order they were applied, which is also the order of the running simulator's own
+fault list — the two are built and appended in lockstep — so a fault's **position
+is its handle**: `DELETE .../faults/2` repairs that one and leaves the rest of the
+damage in place, while `DELETE .../faults` repairs everything.
+
+This is what lets any operator tool walk up to a live rack, break one cell, and
+later fix just that cell without disturbing the rest of the damage.
+
+### Faulting a wire run
+
+A segment in a network solve may carry `faults` (`[{type, ...params}]`, one of
+`resistance_growth`, `contact_resistance`, `conductor_damage`,
+`insulation_degradation`, `ground_fault`) and the body may carry `elapsed_s` —
+how long they have been active, which matters for the ones that develop over time.
+
+A fault changes the *conductance the network sees*, not just one wire's
+temperature, so the whole network re-settles around it: a loose joint starves
+everything downstream of it, and a ground fault leaks current that the load beyond
+it never receives.
+
+### Solving a network in weather
+
+The body may carry `weather` (`{air_temp_c, wind_speed_ms?, solar_w_m2?}`, the
+same shape `/api/wires/evaluate` takes). The whole network is then solved for that
+day: every conductor cools toward the real ambient, wind multiplies its convective
+cooling, absorbed sunlight adds heat scaled by each run's own sun-facing
+silhouette, and **ampacity is derated for ambient** — the conservative standard
+correction, which deliberately does not credit the wind.
+
+Because resistance rises with temperature, a hot still day genuinely costs more
+voltage at the far end of a run than a cold windy one. Weather rides the same
+`FaultEffect` channels faults do (`cooling_mult`, `extra_heat_w`), exactly as
+`WireSimulator` folds it in, so the two compose without a special case.
 
 ### Sources & lifecycle
 

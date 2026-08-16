@@ -27,6 +27,8 @@ from simura.weather import (
     WeatherSample,
     WeatherSeries,
     build_provider,
+    places_from_payload,
+    search_places,
 )
 from simura.weather.providers.open_meteo import _parse_gmt
 
@@ -237,3 +239,52 @@ def test_no_weather_keeps_fixed_ambient():
     frames = sim.run_to_list()
     assert frames[-1].weather is None
     assert frames[-1].max_temp_c == pytest.approx(25.0, abs=1e-6)
+
+
+# -- geocoding ("point a site somewhere") -------------------------------------
+
+def test_places_from_payload_parses_and_labels():
+    places = places_from_payload(
+        {
+            "results": [
+                {
+                    "name": "Berlin",
+                    "latitude": 52.52437,
+                    "longitude": 13.41053,
+                    "country": "Germany",
+                    "admin1": "Berlin",
+                    "timezone": "Europe/Berlin",
+                    "elevation": 74.0,
+                }
+            ]
+        }
+    )
+    assert len(places) == 1
+    p = places[0]
+    assert (p.latitude, p.longitude) == pytest.approx((52.52437, 13.41053))
+    # The timezone is the point: it's what makes a local clock possible.
+    assert p.timezone == "Europe/Berlin"
+    assert p.label == "Berlin, Berlin, Germany"
+    assert p.to_dict()["label"] == p.label
+
+
+def test_places_from_payload_tolerates_empty_and_malformed():
+    # A query that matches nothing comes back with no "results" key at all.
+    assert places_from_payload({}) == []
+    assert places_from_payload({"results": []}) == []
+    # One bad row must not lose the good ones alongside it.
+    places = places_from_payload(
+        {
+            "results": [
+                {"name": "Nowhere"},  # no coordinates
+                {"name": "Oslo", "latitude": 59.91, "longitude": 10.75},
+            ]
+        }
+    )
+    assert [p.name for p in places] == ["Oslo"]
+    assert places[0].label == "Oslo"  # no country/admin1 to append
+
+
+def test_search_places_short_circuits_a_blank_query():
+    """A blank box must not become a network call."""
+    assert search_places("   ") == []

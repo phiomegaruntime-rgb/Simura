@@ -21,6 +21,7 @@ Providers:
 
 from .cache import CachedProvider
 from .config import WEATHER_PARAMS, WEATHER_TYPES, build_provider
+from .geocode import Place, places_from_payload, search_places
 from .provider import WeatherProvider
 from .providers import (
     CsvReplayProvider,
@@ -43,4 +44,7 @@ __all__ = [
     "build_provider",
     "WEATHER_TYPES",
     "WEATHER_PARAMS",
+    "Place",
+    "search_places",
+    "places_from_payload",
 ]

@@ -8,7 +8,7 @@ simulation; they share one framework — a twin core (REST + WebSocket API), a l
 dashboard, and a "replay against real reference data" validation approach — so a
 new component plugs its own physics into machinery that already exists.
 
-Two components exist today:
+Three components exist today:
 
 - **🔋 Batteries (BESS)** — the flagship. Simulate a battery from a single cell to
   a full rack with real electro-thermal dynamics, cell-to-cell imbalance, and
@@ -19,6 +19,12 @@ Two components exist today:
   voltage drop, ohmic loss and electro-thermal heating, a catalog of real wire
   types, a wiring planner (ampacity / voltage-drop / gauge sizing), a multi-node
   network solver, and validation against published conductor standards.
+- **💡 Lights** — every light source from an LED to a sodium arc, simulated from
+  its spectrum up. Planck's law and the CIE observer *compute* each lamp's
+  efficacy rather than looking it up, so a dimmed filament goes orange as its
+  efficacy collapses, and a cold fluorescent tube goes dim while a cold LED goes
+  bright. Plus a lighting planner, an illuminance-field solver, daylight-linked
+  controls, and validation against published photometry **and the live sky**.
 
 Clone it and you have living hardware on your laptop: no lab, no rig, no fire.
 
@@ -29,7 +35,10 @@ Clone it and you have living hardware on your laptop: no lab, no rig, no fire.
 > connectors (Modbus / OPC-UA / MQTT), validation against open datasets, a system
 > builder, fleet lifecycle control, and weather coupling. The **Wires** component
 > is a reusable library with a wiring planner and validation against published
-> DC-resistance standards. Fleet rollup + optional API-key auth are underway; more
+> DC-resistance standards. The **Lights** component covers all four
+> light-source families with spectral physics, lighting design, weather and
+> daylight coupling, and validation against published photometry plus live
+> measured irradiance. Fleet rollup + optional API-key auth are underway; more
 > components (mechanical, thermal, power-electronics) are planned. See the
 > [roadmap](docs/roadmap.md).
 
@@ -62,6 +71,11 @@ python examples/run_basic.py --fault    # inject an internal short + thermal run
 # Wires
 python examples/wire_planning.py        # check a run, size a gauge, solve a network
 python examples/wire_thermal.py         # watch an undersized conductor overheat
+
+# Lights
+python examples/light_planning.py       # light a room, then see where the light falls
+python examples/light_spectrum.py       # where efficacy comes from, and what dimming costs
+python examples/light_weather.py        # photocells, daylight harvesting, cold tubes
 ```
 
 **The full twin** (broker + TimescaleDB + twin core + a simulated asset):
@@ -73,10 +87,11 @@ docker compose -f deploy/docker-compose.yml up --build
 Then open:
 
 - **Dashboard** — <http://localhost:8080> — opens on a landing of **component
-  cards** (Batteries / Wires). Pick **Batteries** for the fleet overview (every
-  system rolled up worst-first; click a card to drill into a pack's live cell
-  heatmap, trends, and fault timeline), or **Wires** for the wiring planner and
-  conductor-model validation.
+  cards** (Batteries / Wires / Lights). Pick **Batteries** for the fleet
+  overview (every system rolled up worst-first; click a card to drill into a
+  pack's live cell heatmap, trends, and fault timeline), **Wires** for the wiring
+  planner and conductor-model validation, or **Lights** for the lighting planner,
+  lamp spectra and photometric validation ([docs](docs/lights.md)).
 - **API docs** — <http://localhost:8000/docs>
 
 > First run after a rename or a DB name change? Postgres only initializes its user
@@ -89,6 +104,7 @@ curl localhost:8000/api/systems                       # twin registry
 curl localhost:8000/api/systems/bess-01/state         # latest frame
 curl "localhost:8000/api/systems/bess-01/history?minutes=10&bucket_s=5"
 curl localhost:8000/api/wires/catalog                 # wire component (pure compute)
+curl localhost:8000/api/lights/catalog                # lights component (pure compute)
 # live stream:  ws://localhost:8000/ws/systems/bess-01
 ```
 
@@ -179,6 +195,26 @@ python -m simura.wires --recommend --current 15 --length 20 --voltage 12 --max-d
 python -m simura.wires.validation --standard copper-annealed-20c   # vs a published standard
 ```
 
+### Lights: design and validate lighting
+
+```python
+from simura.lights import Light, LightSpec, recommend_lamp
+
+Light(LightSpec(lamp_type="inc-60-e27")).operating_point(0.5)   # dim it: 3 lm/W, 2183 K
+recommend_lamp(length_m=12, width_m=9, task="office")           # lamp + count + alternatives
+```
+
+Every lamp's efficacy is computed from the spectrum it radiates, so the model
+*predicts* the catalog rather than repeating it — and reports by how much it
+missed:
+
+```bash
+python -m simura.lights --spectrum --lamp led-9-e27      # the SPD and what it is worth
+python -m simura.lights --dim --lamp inc-60-e27          # what a dimmer really costs
+python -m simura.lights.validation --all                 # vs published photometry
+python -m simura.lights.validation --live --lat 51.5 --lon -0.13   # vs the live sky
+```
+
 ## What's modeled
 
 ### Batteries component
@@ -219,6 +255,31 @@ python -m simura.wires.validation --standard copper-annealed-20c   # vs a publis
 - **Reusable & battery-agnostic** (`simura.wires`) — knows conductors and
   electrical physics, not batteries. See [docs/wires.md](docs/wires.md).
 
+### Lights component
+
+- **Spectral physics** — Planck's law and the CIE 1931 observer give luminous
+  efficacy, chromaticity and colour temperature from the spectrum a source
+  actually radiates. Efficacy is never tabulated, so dimming, colour temperature
+  and temperature derating all follow from one place.
+- **Every source family** — thermal radiators (incandescent, halogen), solid state
+  (LED, high-CRI LED, laser diode), low-pressure discharge (fluorescent, CFL,
+  induction, low-pressure sodium, neon) and high-pressure discharge (metal halide,
+  high-pressure sodium, mercury vapour, xenon arc), each with its own electrical
+  law, warm-up, restrike and ageing behaviour.
+- **Photometry & planning** — inverse-square illuminance, the lumen method, task
+  illuminance targets, colour-rendering and installed-power checks, and a
+  recommender that ranks every catalog lamp by installed power at the *end* of a
+  maintenance cycle rather than on day one.
+- **Layouts** — a split-flux illuminance field over a room, reporting the
+  uniformity an average hides, with per-luminaire fault injection.
+- **Weather & daylight** — ambient, wind and solar coupling (which moves LED and
+  fluorescent output in opposite directions), plus daylight illuminance driving
+  photocell and daylight-harvesting controls.
+- **Validation** — against the CIE observer, the Planckian locus, published lamp
+  efficacy, both derating curves, and **live measured irradiance** from Open-Meteo.
+- **Reusable & battery-agnostic** (`simura.lights`) — knows light and the human
+  eye, not batteries. See [docs/lights.md](docs/lights.md).
+
 ### The platform (shared across components)
 
 - **Twin core** — a FastAPI service: live state + history (REST), a per-system
@@ -248,8 +309,9 @@ Start with [Getting started](docs/getting-started.md), the
 The **Batteries** component is built out end to end (physics → twin core →
 dashboard → anomaly detection → diagnosis/RUL/safety → hardware connectors →
 fleet, validation, builder, lifecycle, weather). The **Wires** component adds a
-reusable conductor library with planning and validation. Next: fleet & deployment
-hardening, and new physics components. Full detail in
+reusable conductor library with planning and validation, and **Lights** adds
+spectral physics and lighting design across every source family. Next: fleet &
+deployment hardening, and new physics components. Full detail in
 [docs/roadmap.md](docs/roadmap.md); design in
 [docs/architecture.md](docs/architecture.md).
 
@@ -258,5 +320,6 @@ hardening, and new physics components. Full detail in
 Issues and PRs welcome. Good first areas span both components — new cell
 chemistries (LFP OCV curves), fault types, and load profiles on the battery side;
 new conductor materials, insulation classes, and reference resistance standards on
-the wire side — each slots into an [example](examples/README.md). See
+the wire side; new lamp types, spectral recipes, and photometric reference data on
+the lighting side — each slots into an [example](examples/README.md). See
 [CONTRIBUTING.md](CONTRIBUTING.md). Licensed under **Apache-2.0**.

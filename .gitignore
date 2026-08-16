@@ -25,6 +25,15 @@ Thumbs.db
 # Docs site build output (mkdocs)
 /site/
 
+# Optional dashboard modules. The core app discovers whatever is installed here
+# at build time (dashboard/src/lib/modules.ts) and builds cleanly with none of
+# them present, so modules that aren't part of the open-source distribution live
+# in their own repositories and are checked out into this directory.
+/dashboard/src/modules/
+
+# Drafts / marketing copy
+linkedin-*.md
+
 # Data / artifacts (added in later components)
 *.db
 *.sqlite

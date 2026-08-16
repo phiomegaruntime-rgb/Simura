@@ -9,7 +9,8 @@ hardware feeds.
 ## Landing: choose a component
 
 The dashboard opens on a **landing page of cards**, one per simulation
-component — **Batteries** (the BESS twin) and **Wires** (the conductor library).
+component — **Batteries** (the BESS twin), **Wires** (the conductor library) and
+**Lights** (the lighting designer).
 The header shows no nav here; the cards *are* the nav. Picking a card drills into
 that component and the header switches to a sub-nav scoped to just that
 component (with a **← Components** link back to the landing). The Simura logo
@@ -17,6 +18,7 @@ returns to the landing from anywhere.
 
 - **Batteries** → Fleet, Build, Validation.
 - **Wires** → Wiring planner, Validation.
+- **Lights** → Lighting planner, Validation.
 
 ## Fleet overview
 
@@ -75,6 +77,29 @@ MQTT, no DB), across two sub-views:
   battery **Validation** view.
 
 See [Wires](wires.md).
+
+## Lights (Component 14)
+
+The Lights component exposes the lighting library over pure-compute endpoints (no
+broker, no database), in two views.
+
+- **Lighting planner** — over `simura.lights`: describe a space and a task, then
+  *check* a chosen lamp against illuminance, colour rendering and installed power,
+  let the catalog *recommend* one with every alternative ranked beside it, or
+  *solve the field* to see where the light actually lands as a heatmap. Checks can
+  run at the end of a maintenance cycle rather than on day one, and an optional
+  weather panel moves the answer — in opposite directions depending on the
+  technology.
+- Under the planner, the selected lamp's **spectrum** is drawn in its own colours,
+  alongside its efficacy of radiation and the gap between predicted and published
+  flux. This is where a lamp's efficacy comes from, and why two lamps of the same
+  wattage differ.
+- **Validation** — the five bundled photometric standards as selectable cards,
+  reporting absolute *and* relative error; a **live sky** panel that validates the
+  daylight model against measured irradiance for a place you search for; and a CSV
+  upload for your own measurements.
+
+See [Lights](lights.md).
 
 ## Design system
 

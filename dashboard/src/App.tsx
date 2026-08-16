@@ -9,6 +9,8 @@ import ValidationView from "./components/ValidationView";
 import BuildView from "./components/BuildView";
 import WiresView from "./components/WiresView";
 import WiresValidationView from "./components/WiresValidationView";
+import LightsView from "./components/LightsView";
+import LightsValidationView from "./components/LightsValidationView";
 import Footer from "./components/Footer";
 import HealthBanner from "./components/HealthBanner";
 import StatTile from "./components/StatTile";
@@ -121,7 +123,7 @@ export default function App() {
         connected={connected}
       />
 
-      <main className="flex-1 p-6 flex flex-col gap-4 max-w-[1400px] w-full mx-auto">
+      <main className="flex-1 p-6 flex flex-col gap-4 w-full mx-auto max-w-[1400px]">
         {view === "home" ? (
           <HomeView onOpen={(v) => setView(v)} />
         ) : view === "build" ? (
@@ -135,6 +137,10 @@ export default function App() {
           <WiresView />
         ) : view === "wiresvalidation" ? (
           <WiresValidationView />
+        ) : view === "lights" ? (
+          <LightsView />
+        ) : view === "lightsvalidation" ? (
+          <LightsValidationView />
         ) : view === "validation" ? (
           <ValidationView />
         ) : view === "fleet" ? (

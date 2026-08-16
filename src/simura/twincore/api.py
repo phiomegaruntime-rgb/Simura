@@ -7,9 +7,13 @@ in :mod:`simura.twincore.main`.
 
 from __future__ import annotations
 
+import asyncio
+import json
 import os
 import tempfile
+import time
 
+from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -28,8 +32,29 @@ from fastapi import (
 )
 from pydantic import BaseModel
 
-from ..builder import SpecError, SystemSpec, builder_options, preview, validate_spec
+from ..builder import (
+    FaultSpec,
+    SpecError,
+    SystemSpec,
+    builder_options,
+    preview,
+    validate_spec,
+)
 from ..fleet import build_fleet
+from ..lights import (
+    LightSpec,
+    build_layout,
+    catalog_options as light_catalog_options,
+    evaluate_installation,
+    recommend_lamp,
+)
+from ..lights.validation import (
+    get_standard as get_light_standard,
+    list_standards as list_light_standards,
+    load_upload_csv as load_light_upload_csv,
+    validate_daylight_live,
+    validate_reference as validate_light_reference,
+)
 from ..wires import (
     WireSpec,
     build_network,
@@ -43,7 +68,7 @@ from ..wires.validation import (
     load_upload_csv,
     validate_reference,
 )
-from ..weather import WeatherSample
+from ..weather import WeatherSample, build_provider, search_places
 from ..validate import (
     get_dataset,
     list_datasets,
@@ -76,6 +101,24 @@ class WireValidationRunRequest(BaseModel):
     standard_id: str = "copper-annealed-20c"
 
 
+class LightValidationRunRequest(BaseModel):
+    """Body for POST /api/lights/validation/run."""
+
+    standard_id: str = "lamp-efficacy-published"
+
+
+class LightLiveValidationRequest(BaseModel):
+    """Body for POST /api/lights/validation/live.
+
+    The one validation in the project that reaches the network: it checks the
+    daylight model against measured irradiance over a real place, right now.
+    """
+
+    latitude: float = 51.5074
+    longitude: float = -0.1278
+    hours: int = 48
+
+
 class CreateSystemRequest(BaseModel):
     """Body for POST /api/systems (create a simulation or register a real-time feed)."""
 
@@ -85,6 +128,15 @@ class CreateSystemRequest(BaseModel):
     spec: Optional[dict[str, Any]] = None
     speed: Optional[float] = None
     autostart: bool = True
+
+
+class InjectFaultRequest(BaseModel):
+    """Body for POST /api/systems/{id}/faults (break a running pack)."""
+
+    type: str = "internal_short"
+    series: int = 0
+    parallel: int = 0
+    params: dict[str, float] = {}
 
 
 def _store(request: Request) -> TimescaleStore:
@@ -273,6 +325,64 @@ async def builder_preview(spec: dict[str, Any] = Body(...)) -> dict[str, Any]:
     return result.to_dict()
 
 
+@router.get("/api/weather/places")
+async def weather_places(q: str = Query("", max_length=120)) -> list[dict[str, Any]]:
+    """Look up places by name, for pointing a live weather source at one.
+
+    Nobody thinks in latitude and longitude, and the result carries the **IANA
+    timezone** — which is what lets a caller show a local clock and answer "is it
+    morning or evening there?". Proxied rather than called from the browser so the
+    dashboard keeps talking to exactly one origin.
+
+    A lookup failure is an empty list, not a 500: a site still runs on
+    coordinates, it just can't name them.
+    """
+    try:
+        places = await asyncio.to_thread(search_places, q)
+    except Exception:  # network hiccup, or Open-Meteo having a bad day
+        return []
+    return [p.to_dict() for p in places]
+
+
+# Built providers, keyed by their spec. A live source caches its fetched window
+# inside the provider, so rebuilding one per request would re-fetch on every poll.
+_weather_providers: dict[str, Any] = {}
+
+
+@router.post("/api/weather/sample")
+async def weather_sample(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Evaluate a weather spec **right now** -- ``{type, params}`` in, one sample out.
+
+    A caller needs the conditions its site is in before it has anything to put
+    there; reading them off a running rack's telemetry only works once a rack
+    exists and is streaming. This answers the same question with no system at all,
+    from the same :mod:`simura.weather` providers, so a site with one battery and
+    a site with none are in the same weather.
+
+    Returns ``{"weather": null}`` for ``type: "none"``.
+    """
+    spec = {"type": str(body.get("type", "none")), **(body.get("params") or {})}
+    if spec["type"] in ("", "none"):
+        return {"weather": None}
+
+    key = json.dumps(spec, sort_keys=True, default=str)
+    provider = _weather_providers.get(key)
+    if provider is None:
+        try:
+            provider = build_provider(spec)
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(status_code=400, detail={"errors": [str(exc)]}) from None
+        if provider is None:
+            return {"weather": None}
+        if len(_weather_providers) > 32:
+            _weather_providers.clear()  # a sandbox, not a server farm
+        _weather_providers[key] = provider
+
+    # A live provider's first call fetches over HTTP; keep that off the event loop.
+    sample = await asyncio.to_thread(provider.at, time.time())
+    return {"weather": sample.to_dict()}
+
+
 @router.get("/api/wires/catalog")
 async def wires_catalog() -> dict[str, Any]:
     """Materials, insulations, and the selectable wire catalog (for the Wires view)."""
@@ -347,9 +457,24 @@ async def wires_recommend(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
 
 @router.post("/api/wires/network")
 async def wires_network(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
-    """Solve a multi-node wire network (nodes + segments)."""
+    """Solve a multi-node wire network (nodes + segments).
+
+    A segment may carry ``faults`` (``[{type, ...params}]``, see
+    :data:`simura.wires.WIRE_FAULT_TYPES`); the fault is folded into the solve, so
+    the whole network re-settles around the bad run rather than just that run
+    getting hot. ``elapsed_s`` is how long those faults have been active, which
+    matters for the ones that develop over time (corrosion).
+
+    An optional ``weather`` object (``{air_temp_c, wind_speed_ms?, solar_w_m2?}``,
+    the same shape ``/api/wires/evaluate`` takes) solves the whole network for that
+    day's conditions: ambient derates every segment's ampacity, wind cools, sun
+    heats.
+    """
     try:
-        result = build_network(body).solve()
+        result = build_network(body).solve(
+            elapsed_s=float(body.get("elapsed_s", 0.0)),
+            weather=_weather_from_body(body),
+        )
     except (ValueError, KeyError) as exc:
         raise HTTPException(status_code=400, detail={"errors": [str(exc)]}) from None
     return result.to_dict()
@@ -424,6 +549,394 @@ async def wires_validation_upload(
         except (ValueError, KeyError) as exc:
             raise HTTPException(status_code=400, detail=f"could not parse CSV: {exc}") from None
         result = validate_reference(ref).to_dict()
+        result["filename"] = file.filename
+        return result
+    finally:
+        os.unlink(tmp.name)
+
+
+@router.get("/api/lights/catalog")
+async def lights_catalog() -> dict[str, Any]:
+    """Technologies, lamps, faults, profiles, controls and lux targets.
+
+    Everything a Lights UI needs to build its forms, in one call. Pure compute --
+    no broker, no database.
+    """
+    return light_catalog_options()
+
+
+@router.post("/api/lights/evaluate")
+async def lights_evaluate(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Check one lighting design against illuminance, colour and installed power.
+
+    Body: ``{spec: {...LightSpec}, n_luminaires, length_m, width_m,
+    mounting_height_m?, task?, target_lux?, maintenance_hours?, dirt_frac?,
+    reflectances?, annual_hours?, weather?: {air_temp_c, wind_speed_ms?,
+    solar_w_m2?}}``.
+
+    With ``weather`` the check is done for that day's conditions -- which moves the
+    answer in opposite directions by technology, since a cold fluorescent tube
+    loses output where a cold LED gains it.
+    """
+    try:
+        spec = LightSpec.from_dict(body.get("spec", {}))
+        assessment = evaluate_installation(
+            spec,
+            n_luminaires=int(body.get("n_luminaires", 1)),
+            length_m=float(body.get("length_m", 8.0)),
+            width_m=float(body.get("width_m", 6.0)),
+            mounting_height_m=float(body.get("mounting_height_m", 2.5)),
+            task=str(body.get("task", "office")),
+            target_lux=body.get("target_lux"),
+            ceiling_reflectance=float(body.get("ceiling_reflectance", 0.7)),
+            wall_reflectance=float(body.get("wall_reflectance", 0.5)),
+            floor_reflectance=float(body.get("floor_reflectance", 0.2)),
+            maintenance_hours=float(body.get("maintenance_hours", 0.0)),
+            dirt_frac=float(body.get("dirt_frac", 0.1)),
+            annual_hours=float(body.get("annual_hours", 2500.0)),
+            weather=_weather_from_body(body),
+        )
+    except (ValueError, KeyError) as exc:
+        raise HTTPException(status_code=400, detail={"errors": [str(exc)]}) from None
+    return assessment.to_dict()
+
+
+@router.post("/api/lights/recommend")
+async def lights_recommend(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Pick the catalog lamp that meets the target at the lowest installed power.
+
+    Returns the winner plus the ranked alternatives, so the trade between
+    technologies is visible rather than asserted. Accepts an optional ``family``
+    to ask what the best filament or discharge answer would have been, and the
+    same ``weather`` object as ``/api/lights/evaluate``.
+    """
+    try:
+        rec = recommend_lamp(
+            length_m=float(body["length_m"]),
+            width_m=float(body["width_m"]),
+            mounting_height_m=float(body.get("mounting_height_m", 2.5)),
+            task=str(body.get("task", "office")),
+            target_lux=body.get("target_lux"),
+            family=body.get("family"),
+            ceiling_reflectance=float(body.get("ceiling_reflectance", 0.7)),
+            wall_reflectance=float(body.get("wall_reflectance", 0.5)),
+            floor_reflectance=float(body.get("floor_reflectance", 0.2)),
+            maintenance_hours=float(body.get("maintenance_hours", 8000.0)),
+            dirt_frac=float(body.get("dirt_frac", 0.1)),
+            annual_hours=float(body.get("annual_hours", 2500.0)),
+            weather=_weather_from_body(body),
+        )
+    except (ValueError, KeyError) as exc:
+        raise HTTPException(status_code=400, detail={"errors": [str(exc)]}) from None
+    return rec.to_dict()
+
+
+@router.post("/api/lights/layout")
+async def lights_layout(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Solve the illuminance field for a room full of luminaires.
+
+    Body: ``{length_m, width_m, workplane_height_m?, grid_n?, grid?: {rows, cols,
+    height_m, lamp}, luminaires?: [{id, x_m, y_m, height_m, lamp, drive?,
+    faults?}], target_lux?, min_uniformity?, elapsed_s?, weather?}``.
+
+    A luminaire may carry ``faults`` (``[{type, ...params}]``, see
+    :data:`simura.lights.LIGHT_FAULT_TYPES`), so a single failed or fouled fitting
+    can be dropped into a working layout and the dark patch it leaves measured.
+    ``elapsed_s`` is how long those faults have been active, which matters for the
+    ones that develop over time.
+    """
+    try:
+        layout = build_layout(body)
+        result = layout.solve(
+            elapsed_s=float(body.get("elapsed_s", 0.0)),
+            target_lux=float(body.get("target_lux", 0.0)),
+            min_uniformity=float(body.get("min_uniformity", 0.0)),
+            weather=_weather_from_body(body),
+            include_interreflection=bool(body.get("include_interreflection", True)),
+            ceiling_reflectance=float(body.get("ceiling_reflectance", 0.7)),
+            wall_reflectance=float(body.get("wall_reflectance", 0.5)),
+            floor_reflectance=float(body.get("floor_reflectance", 0.2)),
+        )
+    except (ValueError, KeyError) as exc:
+        raise HTTPException(status_code=400, detail={"errors": [str(exc)]}) from None
+    return result.to_dict()
+
+
+@router.post("/api/lights/spectrum")
+async def lights_spectrum(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """One lamp's spectral power distribution and everything derived from it.
+
+    Body: ``{spec: {...LightSpec}, drive?, ambient_c?, bin_nm?}``. Returns the SPD
+    on a coarsened wavelength grid (``bin_nm``, 5 nm by default -- the full 1 nm
+    grid is 471 points and no chart needs that) alongside the operating point, so
+    a UI can show *why* a lamp has the efficacy it has.
+    """
+    from ..lights.spectrum import WAVELENGTHS_NM
+    from ..lights.lamp import Light
+
+    try:
+        light = Light(LightSpec.from_dict(body.get("spec", {})))
+        light.time_lit_s = 1e9              # report a warmed-up lamp
+        point = light.operating_point(
+            float(body.get("drive", 1.0)), body.get("ambient_c")
+        )
+        spd = light.spectrum()
+    except (ValueError, KeyError) as exc:
+        raise HTTPException(status_code=400, detail={"errors": [str(exc)]}) from None
+
+    step = max(1, int(body.get("bin_nm", 5)))
+    peak = max(spd.values) or 1.0
+    wavelengths = [WAVELENGTHS_NM[i] for i in range(0, len(WAVELENGTHS_NM), step)]
+    relative = [round(spd.values[i] / peak, 5) for i in range(0, len(spd.values), step)]
+    x, y = spd.chromaticity()
+
+    return {
+        "wavelength_nm": wavelengths,
+        "relative_power": relative,
+        "operating_point": point.to_dict(),
+        "chromaticity": {"x": round(x, 5), "y": round(y, 5)},
+        "spectral_coverage": round(spd.spectral_coverage(), 4),
+        "published_cri": light.tech.cri,
+        "technology": light.tech.to_dict(),
+        "published_flux_lm": light.published_flux_lm,
+    }
+
+
+@router.post("/api/lights/simulate")
+async def lights_simulate(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Run one luminaire through time and return the frames.
+
+    Body: ``{spec, profile?: {type, ...}, control?: {type, ...}, faults?: [...],
+    weather?: {type, ...provider params}, dt_s?, duration_s?, mounting_height_m?,
+    target_lux?, coupling?}``.
+
+    Unlike the planner's single operating point, this shows the things that only
+    exist in time: a discharge lamp's warm-up, an LED's thermal settle, a
+    photocell following the sun, a fault developing. ``weather`` here is a full
+    *provider* spec (the same shape ``/api/weather/sample`` takes), not one
+    sample, because the run needs conditions that move.
+    """
+    from ..lights.config import build_control, build_coupling, build_fault, build_profile
+    from ..lights.profiles import ConstantDrive
+    from ..lights.simulator import LightSimConfig, LightSimulator
+
+    try:
+        dt_s = max(float(body.get("dt_s", 10.0)), 1e-3)
+        duration_s = float(body.get("duration_s", 3600.0))
+        # A sandbox, not a batch job: cap the frame count so a stray request
+        # cannot ask the twin core for a million timesteps.
+        if duration_s / dt_s > 20000:
+            raise ValueError("too many steps: raise dt_s or lower duration_s (20000 max)")
+
+        profile_spec = body.get("profile")
+        sim = LightSimulator(
+            spec=LightSpec.from_dict(body.get("spec", {})),
+            sim_config=LightSimConfig(
+                dt_s=dt_s,
+                duration_s=duration_s,
+                mounting_height_m=float(body.get("mounting_height_m", 3.0)),
+                target_lux=float(body.get("target_lux", 0.0)),
+                hours_per_second=float(body.get("hours_per_second", 0.0)),
+            ),
+            profile=build_profile(profile_spec) if profile_spec else ConstantDrive(1.0),
+            faults=[build_fault(f) for f in body.get("faults", [])],
+            weather=build_provider(body.get("weather") or {}),
+            coupling=build_coupling(body.get("coupling") or {}),
+            control=build_control(body.get("control") or {}),
+            weather_epoch0=body.get("weather_epoch0"),
+        )
+    except (ValueError, KeyError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail={"errors": [str(exc)]}) from None
+
+    # A live weather provider's first call fetches over HTTP, and the run itself
+    # is pure CPU; keep both off the event loop.
+    try:
+        frames = await asyncio.to_thread(sim.run_to_list)
+    except (ValueError, KeyError) as exc:
+        raise HTTPException(status_code=400, detail={"errors": [str(exc)]}) from None
+
+    energy_kwh = sum(f.input_power_w for f in frames) * dt_s / 3_600_000.0
+    return {
+        "frames": [f.to_dict() for f in frames],
+        "summary": {
+            "n_frames": len(frames),
+            "energy_kwh": round(energy_kwh, 6),
+            "lamp_hours": round(frames[-1].operating_hours_h, 4) if frames else 0.0,
+            "switch_cycles": frames[-1].switch_cycles if frames else 0.0,
+            "final_flux_lm": frames[-1].luminous_flux_lm if frames else 0.0,
+            "final_source_temp_c": frames[-1].source_temp_c if frames else 0.0,
+        },
+    }
+
+
+@router.post("/api/lights/operate")
+async def lights_operate(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Solve many luminaires at once, each against the voltage it actually has.
+
+    Body: ``{lights: [{id, spec, supply_voltage_v, drive?, height_m?, faults?}],
+    ambient_c?, elapsed_s?, weather?}``.
+
+    One call for a whole site, the same way ``/api/wires/network`` solves a whole
+    network — a site with twenty fittings should not need twenty round trips.
+
+    The interesting part is what comes back for a lamp whose supply has sagged,
+    because it depends on whether the lamp has control gear:
+
+    * a **filament** dims steeply and reddens, while its current barely moves;
+    * a **driver or ballast** holds output flat and draws *more* current as the
+      voltage falls, then drops out entirely below its minimum input.
+
+    Callers that also solve an electrical network should expect to iterate: the
+    current a regulated lamp draws depends on the voltage it gets, which depends
+    on the current it draws. Two passes is normally enough.
+    """
+    from ..lights.faults import accumulate
+    from ..lights.config import build_fault as build_light_fault
+    from ..lights.lamp import Light
+    from ..lights.photometry import point_illuminance_lux
+
+    entries = body.get("lights") or []
+    if not isinstance(entries, list):
+        raise HTTPException(status_code=400, detail="'lights' must be a list")
+    if len(entries) > 256:
+        raise HTTPException(status_code=400, detail="too many lights (256 max)")
+
+    ambient_c = body.get("ambient_c")
+    elapsed_s = float(body.get("elapsed_s", 0.0))
+    weather = _weather_from_body(body)
+    daylight_lux = 0.0
+    if weather is not None:
+        from ..lights.environment import LightEnvironmentCoupling
+
+        env = LightEnvironmentCoupling(**(body.get("coupling") or {})).apply(weather)
+        ambient_c = env.ambient_c if ambient_c is None else ambient_c
+        daylight_lux = env.daylight_lux
+
+    results: dict[str, Any] = {}
+    for entry in entries:
+        try:
+            spec = LightSpec.from_dict(entry.get("spec", {}))
+            light = Light(spec)
+            # A luminaire solved from a network is a settled one: the transient is
+            # the simulator's business, not the site's.
+            light.time_lit_s = 1e9
+            effect = accumulate(
+                [build_light_fault(f) for f in entry.get("faults", [])], light, elapsed_s
+            )
+            supply = light.at_supply(
+                float(entry.get("supply_voltage_v", light.supply_voltage_v)),
+                drive=float(entry.get("drive", 1.0)),
+                ambient_c=ambient_c,
+                effect=effect,
+            )
+        except (ValueError, KeyError, TypeError) as exc:
+            raise HTTPException(status_code=400, detail={"errors": [str(exc)]}) from None
+
+        height = float(entry.get("height_m", 0.0))
+        lux = (
+            point_illuminance_lux(supply.point.luminous_flux_lm, light.beam_angle_deg, height)
+            if height > 0
+            else 0.0
+        )
+        result = supply.to_dict()
+        result["illuminance_lux"] = round(lux, 2)
+        result["beam_angle_deg"] = light.beam_angle_deg
+        result["cri"] = light.tech.cri
+        result["family"] = light.tech.family
+        result["technology"] = light.tech.key
+        results[str(entry.get("id", ""))] = result
+
+    return {"lights": results, "daylight_lux": round(daylight_lux, 2)}
+
+
+@router.get("/api/lights/validation/standards")
+async def lights_validation_standards() -> list[dict[str, Any]]:
+    """The catalog of published references the lighting model can be checked against.
+
+    Pure metadata (the reference tables are bundled and computed offline); the
+    dashboard renders these as selectable cards. See
+    :mod:`simura.lights.validation.standards`.
+    """
+    return [s.to_dict() for s in list_light_standards()]
+
+
+@router.post("/api/lights/validation/run")
+async def lights_validation_run(body: LightValidationRunRequest) -> dict[str, Any]:
+    """Validate the lighting model against one bundled reference standard."""
+    try:
+        standard = get_light_standard(body.standard_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from None
+    return validate_light_reference(standard.reference()).to_dict()
+
+
+@router.post("/api/lights/validation/live")
+async def lights_validation_live(body: LightLiveValidationRequest) -> dict[str, Any]:
+    """Validate the daylight model against **live** measured irradiance.
+
+    The only validation in the project whose reference data does not ship with it:
+    it fetches the last ``hours`` of real shortwave radiation for a real place from
+    Open-Meteo and checks the clear-sky daylight model against it. Judge the result
+    on the clear-hour metrics -- the all-hours error measures the weather.
+    """
+    if not (-90.0 <= body.latitude <= 90.0 and -180.0 <= body.longitude <= 180.0):
+        raise HTTPException(status_code=400, detail="latitude/longitude out of range")
+    if not 6 <= body.hours <= 240:
+        raise HTTPException(status_code=400, detail="hours must be between 6 and 240")
+    try:
+        report = await asyncio.to_thread(
+            validate_daylight_live, body.latitude, body.longitude, body.hours
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    except Exception as exc:            # network failure, upstream outage
+        raise HTTPException(
+            status_code=502, detail=f"could not reach the weather source: {exc}"
+        ) from None
+    return report.to_dict()
+
+
+@router.post("/api/lights/validation/upload")
+async def lights_validation_upload(
+    request: Request,
+    file: UploadFile = File(...),
+    quantity: str = Form("luminous_efficacy"),
+    x_col: str = Form("x"),
+    value_col: str = Form("value"),
+    key_col: str = Form(""),
+) -> dict[str, Any]:
+    """Validate the lighting model against the user's **own** measurements.
+
+    The browser uploads a CSV; the server parses it, replays each point through
+    the model, and returns the report with ``data_source == "user-upload"``.
+    """
+    settings = request.app.state.settings
+    max_bytes = int(settings.validation_max_upload_mb * 1024 * 1024)
+    data = await file.read(max_bytes + 1)
+    if len(data) > max_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=f"file exceeds the {settings.validation_max_upload_mb:g} MB limit",
+        )
+    if not data:
+        raise HTTPException(status_code=400, detail="empty file")
+
+    suffix = Path(file.filename or "upload").suffix or ".csv"
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    try:
+        tmp.write(data)
+        tmp.close()
+        try:
+            ref = load_light_upload_csv(
+                tmp.name,
+                quantity=quantity,
+                x_col=x_col,
+                value_col=value_col,
+                key_col=key_col or None,
+            )
+            result = validate_light_reference(ref).to_dict()
+        except (ValueError, KeyError) as exc:
+            raise HTTPException(status_code=400, detail=f"could not parse CSV: {exc}") from None
         result["filename"] = file.filename
         return result
     finally:
@@ -507,6 +1020,76 @@ async def pause_system(system_id: str, request: Request) -> dict[str, Any]:
 @router.post("/api/systems/{system_id}/resume")
 async def resume_system(system_id: str, request: Request) -> dict[str, Any]:
     return await _control(request, system_id, "resume")
+
+
+@router.post("/api/systems/{system_id}/faults")
+async def inject_fault(
+    system_id: str, body: InjectFaultRequest, request: Request
+) -> dict[str, Any]:
+    """Inject a fault into a **running** simulation, effective on the next timestep.
+
+    Faults were previously spec-time only, so breaking a pack meant rebuilding it
+    from t=0. This degrades the pack from wherever it already is -- which is what
+    lets an operator tool walk up to a live system and break it. The fault is also appended to the system's spec, so it persists across the
+    sim's own duration rollover. Real-time feeds can't be faulted (409).
+    """
+    mgr = _require_sim(request, system_id)
+    try:
+        applied = await mgr.inject_fault(
+            system_id,
+            FaultSpec(
+                type=body.type,
+                series=body.series,
+                parallel=body.parallel,
+                params=dict(body.params),
+            ),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail={"errors": [str(exc)]}) from None
+    return {"system_id": system_id, "injected": asdict(applied)}
+
+
+def _require_sim(request: Request, system_id: str):
+    """The SimManager, or 409 if this id isn't a twin-core simulation."""
+    mgr = _sim_manager(request)
+    if not mgr.is_managed(system_id):
+        raise HTTPException(
+            status_code=409,
+            detail=f"system '{system_id}' is not a twin-core simulation "
+            "(faults only apply to simulations)",
+        )
+    return mgr
+
+
+@router.get("/api/systems/{system_id}/faults")
+async def list_faults(system_id: str, request: Request) -> dict[str, Any]:
+    """Every fault currently on a simulation, in the order they were applied.
+
+    A fault's position in this list is its handle for ``DELETE .../faults/{index}``.
+    """
+    mgr = _require_sim(request, system_id)
+    return {
+        "system_id": system_id,
+        "faults": [asdict(f) for f in mgr.faults(system_id)],
+    }
+
+
+@router.delete("/api/systems/{system_id}/faults/{index}")
+async def remove_fault(system_id: str, index: int, request: Request) -> dict[str, Any]:
+    """Remove one fault by its position -- repair a cell without repairing the pack."""
+    mgr = _require_sim(request, system_id)
+    try:
+        removed = await mgr.remove_fault(system_id, index)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail={"errors": [str(exc)]}) from None
+    return {"system_id": system_id, "removed": asdict(removed)}
+
+
+@router.delete("/api/systems/{system_id}/faults")
+async def clear_faults(system_id: str, request: Request) -> dict[str, Any]:
+    """Repair a system: drop every injected/declared fault from the running sim."""
+    mgr = _require_sim(request, system_id)
+    return {"system_id": system_id, "cleared": await mgr.clear_faults(system_id)}
 
 
 @router.delete("/api/systems/{system_id}")

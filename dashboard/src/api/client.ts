@@ -2,9 +2,24 @@ import type {
   BuilderOptions,
   CreateSystemPayload,
   DatasetSpec,
+  FaultSpec,
   FleetResponse,
+  InstallationAssessment,
+  LampRecommendation,
+  LayoutResult,
+  LightCatalog,
+  LightFaultInput,
+  LightOperateResponse,
+  LightSimulationResult,
+  LightSpecInput,
+  LightStandardSpec,
+  LightUploadOptions,
+  LightValidationReport,
+  LiveDaylightReport,
+  NetworkResult,
   PreviewResult,
   Recommendation,
+  SpectrumResponse,
   RunAssessment,
   SystemInfo,
   SystemSpec,
@@ -12,7 +27,9 @@ import type {
   UploadOptions,
   ValidationReport,
   WeatherInput,
+  WeatherSample,
   WireCatalog,
+  WireFaultInput,
   WireStandardSpec,
   WireUploadOptions,
   WireValidationReport,
@@ -182,6 +199,52 @@ export async function previewSpec(spec: SystemSpec): Promise<PreviewResult> {
   return res.json();
 }
 
+// ---- Weather places (geocoding) ----
+
+export interface Place {
+  name: string;
+  latitude: number;
+  longitude: number;
+  country: string;
+  admin1: string;
+  timezone: string;
+  elevation_m: number | null;
+  label: string;
+}
+
+/**
+ * Look up places by name, for pointing a live weather source at one.
+ *
+ * Proxied through the twin core rather than called from the browser, so the
+ * dashboard keeps talking to exactly one origin. A failed lookup is an empty
+ * list, never an exception — a site still runs on coordinates.
+ */
+export async function searchPlaces(query: string): Promise<Place[]> {
+  const res = await fetch(`/api/weather/places?q=${encodeURIComponent(query)}`);
+  if (!res.ok) return [];
+  return res.json();
+}
+
+/**
+ * Evaluate a weather spec right now, with no system involved.
+ *
+ * A site needs to know what day it is in before it has anything to put in it —
+ * and while a rack's telemetry carries the same thing, that only answers once a
+ * rack exists and is streaming. Same providers, same answer, no prerequisites.
+ */
+export async function fetchWeatherSample(
+  spec: { type: string; params: Record<string, number> }
+): Promise<WeatherSample | null> {
+  const res = await fetch("/api/weather/sample", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(spec),
+  });
+  if (!res.ok) return null;
+  const body = await res.json();
+  return body.weather ?? null;
+}
+
 // ---- Wires (Component 12) ----
 
 /** The selectable wire catalog + materials/insulations for the Wires view. */
@@ -229,6 +292,79 @@ export async function recommendWire(body: RecommendBody): Promise<Recommendation
     body: JSON.stringify(body),
   });
   return jsonOrThrow(res, "recommend wire");
+}
+
+export interface NetworkBody {
+  nodes: { id: string; voltage?: number; load_a?: number }[];
+  segments: {
+    id: string;
+    from: string;
+    to: string;
+    wire: Record<string, unknown>;
+    faults?: WireFaultInput[];
+  }[];
+  elapsed_s?: number;
+}
+
+/**
+ * Solve a multi-node wire network by nodal analysis.
+ *
+ * Pure compute — no broker, no database — so a client can re-solve on every edit
+ * and get the answer back within a frame or two.
+ */
+export async function solveNetwork(body: NetworkBody): Promise<NetworkResult> {
+  const res = await fetch("/api/wires/network", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return jsonOrThrow(res, "solve network");
+}
+
+// ---- Live fault injection ----
+
+export interface InjectFaultBody {
+  type: string;
+  series?: number;
+  parallel?: number;
+  params?: Record<string, number>;
+}
+
+/** Break a running pack: inject a fault effective on its next timestep. */
+export async function injectFault(systemId: string, body: InjectFaultBody) {
+  const res = await fetch(`/api/systems/${encodeURIComponent(systemId)}/faults`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return jsonOrThrow(res, "inject fault");
+}
+
+/** The faults currently on a running pack, in the order they were applied. */
+export async function fetchFaults(systemId: string): Promise<FaultSpec[]> {
+  const res = await fetch(`/api/systems/${encodeURIComponent(systemId)}/faults`);
+  const body = await jsonOrThrow(res, "list faults");
+  return body.faults ?? [];
+}
+
+/**
+ * Repair one fault by its position in that list — a maintenance action rather
+ * than starting the pack over.
+ */
+export async function removeFault(systemId: string, index: number) {
+  const res = await fetch(
+    `/api/systems/${encodeURIComponent(systemId)}/faults/${index}`,
+    { method: "DELETE" }
+  );
+  return jsonOrThrow(res, "remove fault");
+}
+
+/** Repair a running pack: drop every fault on it. */
+export async function clearFaults(systemId: string) {
+  const res = await fetch(`/api/systems/${encodeURIComponent(systemId)}/faults`, {
+    method: "DELETE",
+  });
+  return jsonOrThrow(res, "clear faults");
 }
 
 // ---- Wire validation (against published standards) ----
@@ -305,4 +441,248 @@ export async function fetchHistory(
       voltage: p.pack_voltage_v ?? 0,
       imbalance: p.voltage_imbalance_v ?? 0,
     }));
+}
+
+// ---- Lights (Component 14) ----
+
+/** Technologies, lamps, faults, profiles, controls and lux targets, in one call. */
+export async function fetchLightCatalog(): Promise<LightCatalog> {
+  const res = await fetch("/api/lights/catalog");
+  if (!res.ok) throw new Error(`GET /api/lights/catalog failed: ${res.status}`);
+  return res.json();
+}
+
+export interface LightEvalBody {
+  spec: LightSpecInput;
+  n_luminaires: number;
+  length_m: number;
+  width_m: number;
+  mounting_height_m?: number;
+  task?: string;
+  target_lux?: number;
+  maintenance_hours?: number;
+  dirt_frac?: number;
+  ceiling_reflectance?: number;
+  wall_reflectance?: number;
+  floor_reflectance?: number;
+  annual_hours?: number;
+  weather?: WeatherInput;
+}
+
+/** Check one lighting design against illuminance, colour and installed power. */
+export async function evaluateLighting(
+  body: LightEvalBody
+): Promise<InstallationAssessment> {
+  const res = await fetch("/api/lights/evaluate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return jsonOrThrow(res, "evaluate lighting");
+}
+
+export interface LampRecommendBody {
+  length_m: number;
+  width_m: number;
+  mounting_height_m?: number;
+  task?: string;
+  target_lux?: number;
+  family?: string | null;
+  maintenance_hours?: number;
+  dirt_frac?: number;
+  ceiling_reflectance?: number;
+  wall_reflectance?: number;
+  floor_reflectance?: number;
+  annual_hours?: number;
+  weather?: WeatherInput;
+}
+
+/**
+ * Pick the catalog lamp that meets the target at the lowest installed power.
+ *
+ * Comes back with the ranked alternatives as well as the winner, because the
+ * interesting part is the trade between technologies, not the answer alone.
+ */
+export async function recommendLamp(body: LampRecommendBody): Promise<LampRecommendation> {
+  const res = await fetch("/api/lights/recommend", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return jsonOrThrow(res, "recommend lamp");
+}
+
+export interface LayoutBody {
+  length_m: number;
+  width_m: number;
+  workplane_height_m?: number;
+  grid_n?: number;
+  grid?: { rows: number; cols: number; height_m: number; lamp: LightSpecInput; drive?: number };
+  luminaires?: {
+    id: string;
+    x_m: number;
+    y_m: number;
+    height_m: number;
+    lamp: LightSpecInput;
+    drive?: number;
+    faults?: LightFaultInput[];
+  }[];
+  target_lux?: number;
+  min_uniformity?: number;
+  elapsed_s?: number;
+  include_interreflection?: boolean;
+  weather?: WeatherInput;
+}
+
+/**
+ * Solve the illuminance field over a room.
+ *
+ * Pure compute, like the wire network solve — no broker, no database — so a UI
+ * can re-solve on every edit and get the grid back within a frame or two.
+ */
+export async function solveLayout(body: LayoutBody): Promise<LayoutResult> {
+  const res = await fetch("/api/lights/layout", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return jsonOrThrow(res, "solve layout");
+}
+
+/** One lamp's spectral power distribution, and everything derived from it. */
+export async function fetchSpectrum(
+  spec: LightSpecInput,
+  drive = 1.0,
+  ambientC?: number
+): Promise<SpectrumResponse> {
+  const res = await fetch("/api/lights/spectrum", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ spec, drive, ambient_c: ambientC }),
+  });
+  return jsonOrThrow(res, "fetch spectrum");
+}
+
+export interface LightSimulateBody {
+  spec: LightSpecInput;
+  profile?: { type: string; [param: string]: number | string };
+  control?: { type: string; [param: string]: number | string };
+  faults?: LightFaultInput[];
+  weather?: { type: string; [param: string]: number | string };
+  coupling?: Record<string, number | boolean>;
+  dt_s?: number;
+  duration_s?: number;
+  mounting_height_m?: number;
+  target_lux?: number;
+  hours_per_second?: number;
+  weather_epoch0?: number;
+}
+
+/** Run one luminaire through time — warm-up, thermal settle, controls, faults. */
+export async function simulateLight(
+  body: LightSimulateBody
+): Promise<LightSimulationResult> {
+  const res = await fetch("/api/lights/simulate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return jsonOrThrow(res, "simulate light");
+}
+
+// ---- Light validation ----
+
+/** The catalog of published references the lighting model can be checked against. */
+export async function fetchLightStandards(): Promise<LightStandardSpec[]> {
+  const res = await fetch("/api/lights/validation/standards");
+  if (!res.ok) throw new Error(`GET /api/lights/validation/standards failed: ${res.status}`);
+  return res.json();
+}
+
+/** Validate the lighting model against one bundled reference standard. */
+export async function runLightValidation(
+  standardId: string
+): Promise<LightValidationReport> {
+  const res = await fetch("/api/lights/validation/run", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ standard_id: standardId }),
+  });
+  return jsonOrThrow(res, "validate lighting model");
+}
+
+/**
+ * Validate the daylight model against **live** measured irradiance.
+ *
+ * The one check in the dashboard whose reference data is different every time
+ * it runs: it goes to Open-Meteo for the real sky over a real place. Slower than
+ * the bundled standards, and it can fail if the network is down — which is why
+ * the UI treats it separately rather than as a sixth card.
+ */
+export async function runLiveDaylightValidation(
+  latitude: number,
+  longitude: number,
+  hours = 48
+): Promise<LiveDaylightReport> {
+  const res = await fetch("/api/lights/validation/live", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ latitude, longitude, hours }),
+  });
+  return jsonOrThrow(res, "validate daylight live");
+}
+
+/** Validate the lighting model against the user's own measured CSV. */
+export async function uploadLightValidation(
+  file: File,
+  opts: LightUploadOptions = {}
+): Promise<LightValidationReport> {
+  const form = new FormData();
+  form.append("file", file);
+  if (opts.quantity) form.append("quantity", opts.quantity);
+  if (opts.xCol) form.append("x_col", opts.xCol);
+  if (opts.valueCol) form.append("value_col", opts.valueCol);
+  if (opts.keyCol) form.append("key_col", opts.keyCol);
+
+  const res = await fetch("/api/lights/validation/upload", { method: "POST", body: form });
+  if (!res.ok) {
+    let detail = `${res.status}`;
+    try {
+      detail = (await res.json()).detail ?? detail;
+    } catch {
+      /* keep status */
+    }
+    throw new Error(`Upload failed: ${detail}`);
+  }
+  return res.json();
+}
+
+export interface LightOperateBody {
+  lights: {
+    id: string;
+    spec: LightSpecInput;
+    supply_voltage_v: number;
+    drive?: number;
+    height_m?: number;
+    faults?: { type: string; [param: string]: number | string }[];
+  }[];
+  ambient_c?: number;
+  elapsed_s?: number;
+  weather?: WeatherInput;
+}
+
+/**
+ * Solve many luminaires at once, each against the voltage it actually has.
+ *
+ * One call for a whole site, like `solveNetwork` — a site with twenty fittings
+ * should not need twenty round trips. Pure compute, so it can run on
+ * every edit alongside the wire solve it is coupled to.
+ */
+export async function operateLights(body: LightOperateBody): Promise<LightOperateResponse> {
+  const res = await fetch("/api/lights/operate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return jsonOrThrow(res, "operate lights");
 }

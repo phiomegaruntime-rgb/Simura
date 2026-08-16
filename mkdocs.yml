@@ -55,6 +55,7 @@ nav:
       - System builder: builder.md
       - Weather: weather.md
       - Wires: wires.md
+      - Lights: lights.md
       - Dashboard: dashboard.md
   - Project:
       - Roadmap: roadmap.md
