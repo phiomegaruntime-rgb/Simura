@@ -288,6 +288,10 @@ python -m simura.lights.validation --live --lat 51.5 --lon -0.13   # vs the live
   cards and scopes its navigation to the component you pick.
 - **Connectors** — Modbus / OPC-UA / MQTT bridges that emit the same telemetry
   envelope as the simulator, so real hardware and simulation are interchangeable.
+- **Dashboard modules** — the dashboard discovers optional modules in
+  `dashboard/src/modules/` at build time and merges them into its landing cards
+  and navigation. A module talks to the twin only through the same public API,
+  and the app builds unchanged with none installed.
 - **Component shape** — every component is an independent, unit-tested physics
   library first, then thin wiring into the twin core and dashboard.
 

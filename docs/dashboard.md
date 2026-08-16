@@ -20,6 +20,9 @@ returns to the landing from anywhere.
 - **Wires** → Wiring planner, Validation.
 - **Lights** → Lighting planner, Validation.
 
+Optional modules installed under `dashboard/src/modules/` add cards of their own
+here; see [Contributing](contributing.md) for the contract.
+
 ## Fleet overview
 
 The Batteries component opens on a **fleet overview**: a summary strip (systems,

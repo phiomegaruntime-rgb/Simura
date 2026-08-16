@@ -69,6 +69,28 @@ npm run build      # production bundle
 npx tsc --noEmit   # type-check
 ```
 
+### Optional dashboard modules
+
+`dashboard/src/modules/` is a slot for self-contained views that ship separately
+from the core app — it is git-ignored, and the dashboard type-checks and builds
+with it empty. `src/lib/modules.ts` discovers whatever is installed there and
+merges each module's landing card and sub-nav into the app's navigation.
+
+A module is a directory with an `index.ts` default-exporting a `DashboardModule`
+(a `Section` plus a `load()` for its root view). Three rules keep the core app
+independent of what's installed:
+
+- **No core file may import a module by name** — discovery is by glob only, so a
+  missing module is an empty landing card list, never a build error.
+- **The manifest must import types only.** It is evaluated at startup; a runtime
+  import there would pull the module's dependencies into the first paint, which
+  is what `load()` exists to avoid.
+- **A module talks to the server through `src/api/client.ts`**, like every other
+  view. Modules get no private endpoints.
+
+Heavy dependencies belong to modules that use them. `three` is in the dashboard's
+`package.json` for this reason; no core view imports it.
+
 ## Running the tests
 
 ```bash

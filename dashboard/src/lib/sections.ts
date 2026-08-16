@@ -5,8 +5,14 @@
 // sub-nav scoped to just that component (the landing itself shows no nav). This
 // module is the single source of truth for that structure, shared by App (the
 // render switch), TopBar (the sub-nav) and HomeView (the cards).
+//
+// Optional modules (see ./modules.ts) contribute sections of their own, so the
+// view and section keys are open: the built-in ones stay literal for
+// autocomplete and exhaustive switches, and a module's key is any other string.
 
-export type View =
+import { MODULES, moduleForView } from "./modules";
+
+export type CoreView =
   | "home"
   | "fleet"
   | "system"
@@ -17,7 +23,12 @@ export type View =
   | "lights"
   | "lightsvalidation";
 
-export type SectionKey = "batteries" | "wires" | "lights";
+// `string & {}` keeps the literals in autocomplete while admitting module keys.
+export type View = CoreView | (string & {});
+
+export type CoreSectionKey = "batteries" | "wires" | "lights";
+
+export type SectionKey = CoreSectionKey | (string & {});
 
 // A navigable destination within a section's sub-nav. "system" (the per-system
 // detail view) is reached by drilling into a card, not from the sub-nav.
@@ -25,6 +36,10 @@ export interface NavItem {
   key: Exclude<View, "home" | "system">;
   label: string;
 }
+
+// Re-exported so a module can type its manifest against the same contract the
+// built-in sections use, without reaching past this file.
+export type { DashboardModule } from "./modules";
 
 export interface Section {
   key: SectionKey;
@@ -88,7 +103,7 @@ export const SECTIONS: Section[] = [
 ];
 
 // Which section a view belongs to. The per-system detail view lives under Batteries.
-const VIEW_SECTION: Record<Exclude<View, "home">, SectionKey> = {
+const VIEW_SECTION: Record<Exclude<CoreView, "home">, CoreSectionKey> = {
   fleet: "batteries",
   build: "batteries",
   validation: "batteries",
@@ -99,9 +114,14 @@ const VIEW_SECTION: Record<Exclude<View, "home">, SectionKey> = {
   lightsvalidation: "lights",
 };
 
+// Every section the app can show: the built-ins, then whatever modules are
+// installed. This is what the landing page renders.
+export const ALL_SECTIONS: Section[] = [...SECTIONS, ...MODULES.map((m) => m.section)];
+
 // The section a view belongs to, or null on the landing page.
 export function sectionOf(view: View): Section | null {
   if (view === "home") return null;
-  const key = VIEW_SECTION[view];
-  return SECTIONS.find((s) => s.key === key) ?? null;
+  const key = VIEW_SECTION[view as Exclude<CoreView, "home">];
+  if (key) return SECTIONS.find((s) => s.key === key) ?? null;
+  return moduleForView(view)?.section ?? null;
 }

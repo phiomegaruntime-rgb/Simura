@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { fetchFleet, fetchSystems } from "./api/client";
 import { useTelemetry } from "./api/useTelemetry";
 import type { CellAnomaly, FleetResponse, SystemInfo } from "./api/types";
@@ -21,6 +21,7 @@ import AnomalyPanel from "./components/AnomalyPanel";
 import DiagnosisCard from "./components/DiagnosisCard";
 import { anomalyLevel, faultLabel, imbalanceLevel, safetyLevel, tempLevel, worst } from "./lib/status";
 import type { View } from "./lib/sections";
+import { moduleForView } from "./lib/modules";
 
 export default function App() {
   const [view, setView] = useState<View>("home");
@@ -67,6 +68,10 @@ export default function App() {
       clearInterval(id);
     };
   }, [view]);
+
+  // Non-null when an installed module owns the current view; it renders instead
+  // of the built-in views and decides its own width.
+  const activeModule = useMemo(() => moduleForView(view), [view]);
 
   const openSystem = (id: string) => {
     setSelected(id);
@@ -123,9 +128,25 @@ export default function App() {
         connected={connected}
       />
 
-      <main className="flex-1 p-6 flex flex-col gap-4 w-full mx-auto max-w-[1400px]">
+      <main
+        className={`flex-1 p-6 flex flex-col gap-4 w-full mx-auto ${
+          // A full-bleed module view wants the whole viewport; every other view
+          // reads better inside the dashboard's measure.
+          activeModule?.fullBleed ? "max-w-none" : "max-w-[1400px]"
+        }`}
+      >
         {view === "home" ? (
           <HomeView onOpen={(v) => setView(v)} />
+        ) : activeModule ? (
+          <Suspense
+            fallback={
+              <div className="flex-1 flex items-center justify-center text-muted">
+                Loading {activeModule.section.label}…
+              </div>
+            }
+          >
+            <activeModule.view />
+          </Suspense>
         ) : view === "build" ? (
           <BuildView
             onStarted={() => {

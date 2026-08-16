@@ -1,4 +1,4 @@
-import { SECTIONS } from "../lib/sections";
+import { ALL_SECTIONS } from "../lib/sections";
 import type { Section, View } from "../lib/sections";
 
 interface Props {
@@ -19,7 +19,7 @@ export default function HomeView({ onOpen }: Props) {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {SECTIONS.map((s) => (
+        {ALL_SECTIONS.map((s) => (
           <SectionCard key={s.key} section={s} onOpen={() => onOpen(s.landing)} />
         ))}
       </div>

@@ -410,6 +410,10 @@ The platform work it drove *is* open source, and shipped in v0.15:
   and derating ampacity for ambient — the same treatment `evaluate_run` already
   gave a single run, now for a whole network. Weather rides the same `FaultEffect`
   channels faults do, so the two compose with no special case.
+- [x] An **optional-module slot** in the dashboard (`dashboard/src/modules/`,
+  discovered by `src/lib/modules.ts`): a self-contained view ships its own landing
+  card, sub-nav and lazily-loaded root, and the core app never imports one by
+  name. See [Contributing](contributing.md).
 
 **Verified:** `test_simctl` (+8) covers a fault injected into a running sim
 reaching the targeted cell and making it the hottest in the pack, the "now" stamp,
