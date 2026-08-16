@@ -28,20 +28,6 @@ Three components exist today:
 
 Clone it and you have living hardware on your laptop: no lab, no rig, no fire.
 
-> ⚠️ Early-stage hobby project with industrial ambitions. The **Batteries**
-> component is the most complete: physics simulator, twin core (MQTT +
-> TimescaleDB + REST/WebSocket), live React dashboard, peer-consensus anomaly
-> detection, fault diagnosis / state-of-health / RUL / safety, real-hardware
-> connectors (Modbus / OPC-UA / MQTT), validation against open datasets, a system
-> builder, fleet lifecycle control, and weather coupling. The **Wires** component
-> is a reusable library with a wiring planner and validation against published
-> DC-resistance standards. The **Lights** component covers all four
-> light-source families with spectral physics, lighting design, weather and
-> daylight coupling, and validation against published photometry plus live
-> measured irradiance. Fleet rollup + optional API-key auth are underway; more
-> components (mechanical, thermal, power-electronics) are planned. See the
-> [roadmap](docs/roadmap.md).
-
 ## Why
 
 A physics-based digital twin — a faithful software model you can run, break, and
