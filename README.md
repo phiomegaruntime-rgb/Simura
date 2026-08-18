@@ -30,18 +30,34 @@ Clone it and you have living hardware on your laptop: no lab, no rig, no fire.
 
 ## Why
 
-A physics-based digital twin — a faithful software model you can run, break, and
-learn from without touching real hardware — is one of the highest-value tools in
-industrial software. Simura makes them **open and approachable**: the core of
-every component is pure Python + NumPy, unit-tested with no broker, database, or
-hardware required.
+The market is already full of simulation platforms, so why build another? Because they
+are almost all **deeply domain-specific**, and that quietly puts everyone at a
+disadvantage the moment they try to collaborate: each person has to become a
+"learn-everything" generalist just to be useful, and when the project ends the next one
+starts again from zero.
 
-Batteries came first because battery health and safety is worth real money and
-prevents real fires — state-of-charge, state-of-health, and thermal-runaway early
-warning on a system you can't safely prototype on a real 1 MWh rack. But the
-architecture is deliberately **general**: each new component (wiring today;
-mechanical, thermal, and power-electronics parts later) is an independent physics
-library that plugs into the same twin core, dashboard, and validation approach.
+Simura's mission is to fix that. Think of how a CRM created a common ground between a
+company and its customers; Simura is meant to be a **CRM for simulations** — one place
+where people from different domains get familiar with a simulation without having to
+become an expert in all of it. The goal is simple: **anybody can simulate.**
+
+Getting there runs in **two phases**. **Phase 1 (largely done)** builds the un-fakeable
+part — a faithful, validated physics substrate — because "anybody can simulate" is
+worthless on top of physics no one trusts. A physics-based digital twin (a software model
+you can run, break, and learn from without touching real hardware) is one of the
+highest-value tools in industrial software, and Simura makes them **open and
+approachable**: the core of every component is pure Python + NumPy, unit-tested with no
+broker, database, or hardware required. Batteries came first because battery health and
+safety is worth real money and prevents real fires — you can't safely prototype on a real
+1 MWh rack. But the architecture is deliberately **general**: each component (batteries,
+wires, and lights today; more later) is an independent physics library that plugs into
+the same twin core, dashboard, and validation approach.
+
+**Phase 2 (next)** turns that substrate outward — a browser-first front door (the 3D
+sandbox as the way in), a layer that lets a non-expert *get familiar* with a model,
+memory that persists across projects instead of restarting from zero, and multiplayer
+collaboration across domains. That is where the mission actually lives. See the
+[roadmap](docs/roadmap.md).
 
 ## Quick start
 
@@ -296,14 +312,20 @@ Start with [Getting started](docs/getting-started.md), the
 
 ## Roadmap
 
-The **Batteries** component is built out end to end (physics → twin core →
-dashboard → anomaly detection → diagnosis/RUL/safety → hardware connectors →
-fleet, validation, builder, lifecycle, weather). The **Wires** component adds a
-reusable conductor library with planning and validation, and **Lights** adds
-spectral physics and lighting design across every source family. Next: fleet &
-deployment hardening, and new physics components. Full detail in
-[docs/roadmap.md](docs/roadmap.md); design in
-[docs/architecture.md](docs/architecture.md).
+Development runs in **two phases**.
+
+**Phase 1 — the physics substrate (largely done).** The **Batteries** component is built
+out end to end (physics → twin core → dashboard → anomaly detection →
+diagnosis/RUL/safety → hardware connectors → fleet, validation, builder, lifecycle,
+weather); **Wires** adds a reusable conductor library with planning and validation; and
+**Lights** adds spectral physics and lighting design across every source family.
+
+**Phase 2 — the mission layer (next).** Turn the substrate into the *CRM for simulations*
+the mission describes: a browser-first front door (the 3D sandbox as the way in), a "get
+familiar" layer that explains a model to a non-expert, memory that persists across
+projects instead of restarting from zero, multiplayer collaboration across domains, and
+community-contributed physics. Full detail in [docs/roadmap.md](docs/roadmap.md); design
+in [docs/architecture.md](docs/architecture.md).
 
 ## Contributing
 

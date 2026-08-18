@@ -3,6 +3,23 @@
 The project is built one component at a time. Each component is independently
 useful and leaves the repo in a runnable, tested state.
 
+Development runs in **two phases**, against one mission — *a CRM for simulations, so
+that anybody can simulate*.
+
+- **Phase 1 — the physics substrate (v0.1 → v0.16, largely done).** Build faithful,
+  independently-validated physics components (batteries, wires, lights) and the shared
+  framework that serves them as live digital twins: a twin core, a dashboard, hardware
+  connectors, validation against real data, and fleet control. This is the un-fakeable
+  part — "anybody can simulate" is worthless on top of toy physics, so the substrate
+  had to earn trust first. **Components 1–14 below are Phase 1.**
+- **Phase 2 — the mission layer (next).** Turn that substrate into what the mission
+  actually describes: a place where people from *different domains* get familiar with a
+  simulation without becoming an expert in all of it, where knowledge *persists across
+  projects* instead of restarting from zero, and where "everyone" can actually get in.
+  Phase 1 optimised physics fidelity and breadth; Phase 2 optimises accessibility,
+  collaboration, and reuse. It is laid out in **Phase 2 — the mission layer** at the
+  end of this document.
+
 ## Component 1 — Physics simulator ✅ (v0.1)
 
 A vectorized electro-thermal battery pack model with fault injection, emitting a
@@ -543,4 +560,115 @@ failure. Full suite **291 pass**. The dashboard type-checks and builds.
 - Per-luminaire aiming and asymmetric (roadway) photometric distributions, real
   IES/LDT photometric file import, a proper CIE Ra from the test-colour samples,
   and glare metrics (UGR).
+
+---
+
+# Phase 2 — the mission layer (planned)
+
+Phase 1 built a substrate that is faithful, validated, and broad — three physics
+components on one twin core. But the mission was never "the most faithful physics
+library." It was *a CRM for simulations*: a common ground where people from different
+domains get familiar with a simulation without becoming an expert in all of it, so a
+project's knowledge no longer dies when the project ends and everyone stops having to
+become a "learn-everything" generalist to be useful.
+
+Measured against that mission, Phase 1 optimised the wrong axis on purpose — depth and
+breadth of physics — because the accessible layer is worthless on top of physics no one
+trusts. Phase 2 turns the substrate outward. The guiding shift:
+
+> **Phase 1 asked "is the physics faithful?" Phase 2 asks "can someone who didn't build
+> it understand it, reuse it, and work on it with others?"**
+
+Almost none of the *CRM primitives* exist yet — the substrate is single-player, expert-only,
+and starts fresh each time. The components below add them. They are ordered by leverage
+on the mission, not by dependency; each is independently useful, in the Phase-1 spirit.
+
+## Component 15 — The front door 🚧 (planned)
+
+**Goal.** Make "everyone" able to physically get in. Today every entry point —
+`pip install`, Python examples, `docker compose`, Modbus connectors — targets the
+simulation engineer, i.e. the exact generalist the mission says shouldn't have to exist.
+A non-expert can't reach a running twin.
+
+- [ ] **The 3D sandbox becomes the primary entry**, not a demo on top of the libraries.
+  "Step into a world, pull a physics-backed part from the catalog, place it, wire it,
+  run it, break it" is a better answer to *anybody can simulate* than any API. Promote the
+  Three.js sandbox from showcase to front door; the domain libraries are what make its
+  parts real.
+- [ ] **Zero-install, hosted Simura** — reach a live twin in a browser with no pip and no
+  Docker. This absorbs and promotes the Phase-1 backlog item (Helm / K8s manifests): the
+  deployment work was never just ops, it is what lets "everyone" in.
+- [ ] **A five-minute first simulation** for someone who has never opened the repo —
+  a guided path from landing to a running, breakable system, with no reading required.
+
+## Component 16 — The "get familiar" layer 🚧 (planned)
+
+**Goal.** Deliver the literal crux of the mission: *get familiar with a simulation
+without becoming an expert in all of it.* The dashboard today **reports** telemetry to
+experts; it does not **teach** newcomers. This is the largest gap between what's built
+and what was promised.
+
+- [ ] **Progressive disclosure in every view** — a legible default surface, with the
+  physics depth one click away, so a newcomer isn't met with DCIR and split-flux fields
+  on arrival.
+- [ ] **Plain-language model cards** — every component, model, and parameter carries a
+  "what is this, and why does it matter" written for someone from another domain. The
+  battery person can read the wire model without a cable-pulling background, and vice
+  versa.
+- [ ] **A domain-aware explainer / copilot** — ask "what is this system doing and why,"
+  in your own field's terms, and get an answer grounded in the live twin. This is the
+  single feature that makes "familiar without expertise" literally true, and it fits the
+  project's character: the explanation is *computed from* the model, the way efficacy is.
+
+## Component 17 — Memory that survives the project 🚧 (planned)
+
+**Goal.** Cure the origin wound directly. The pain that started Simura was that every
+new project repeated from zero. Phase 1 can *export a spec JSON*, but there is no shared,
+living record of systems, decisions, and know-how that a next project inherits.
+
+- [ ] **A shared system library** — saved systems with provenance, notes, and the reason
+  a choice was made, not just the numbers. A CRM's real value was never its schema; it was
+  the *record of context* that persists.
+- [ ] **Versioning and lineage** — a system is forked, tuned, and traced back, so project
+  N+1 starts from project N instead of a blank builder.
+- [ ] **Reusable templates** — promote a validated system into a starting point others
+  can build on, turning one engineer's work into everyone's head start.
+
+## Component 18 — Multiplayer 🚧 (planned)
+
+**Goal.** A CRM is multiplayer by definition; the substrate is single-player (one
+optional API key, one dashboard, no accounts). Make a simulation something people work on
+*together, across domains*.
+
+- [ ] **Accounts, roles, and a shared workspace** — more than one person on the same twin,
+  with a notion of who they are and what they do.
+- [ ] **Role- and domain-based views onto one model** — the same system shown differently
+  to different people: the battery engineer sees electro-thermal detail, the safety lead
+  sees alarms and margins, operations sees fleet health. One model, many legible faces.
+- [ ] **Sharing and annotation** — a link to a live twin, comments on a model, a way for a
+  domain-A person to hand a domain-B person a view they can actually read. This is what
+  turns "a simulation tool" into "a common ground."
+
+## Component 19 — Breadth from the community 🚧 (planned)
+
+**Goal.** Reach "simulate everything" without personally building every domain — and
+relieve the "depth forever" pressure where breadth only ever means *another physics
+component you write*.
+
+- [ ] **A contribution path for physics components** — the plumbing already exists (the
+  standalone-library shape, the optional dashboard-module slot); make it a documented,
+  first-class way for others to add a domain.
+- [ ] **A component catalog / marketplace** — discover, install, and share community
+  physics parts, so the LFP curves, the sodium-arc spectra, and the next domain family
+  come from the people who know them best.
+
+---
+
+### What "done" looks like for Phase 2
+
+A person who has never written a line of simulation code opens Simura in a browser, is
+handed a system someone else built, understands what it is doing and why without becoming
+an expert in it, changes something, breaks it on purpose to learn, and leaves a note the
+next person will find. When that is true, "anybody can simulate" is no longer a mantra —
+it is the product.
 
