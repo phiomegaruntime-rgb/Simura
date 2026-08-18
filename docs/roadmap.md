@@ -405,6 +405,12 @@ distribution**. It is developed separately and is not included in this
 repository; nothing here depends on it, and the dashboard builds and runs
 complete without it.
 
+**Relationship to Phase 2.** The Phase 2 mission layer (Components 15–19) is
+open-source and, like everything else in this repo, does **not** depend on Component 13;
+where the two touch the same ground — a hosted front door, collaboration — Component 13
+stays the separately-developed track, and the open mission layer must stand complete
+without it, exactly as the substrate does today.
+
 The platform work it drove *is* open source, and shipped in v0.15:
 
 ### Fault control and network faults (v0.15)
