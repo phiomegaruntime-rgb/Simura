@@ -815,3 +815,138 @@ export interface LightOperateResponse {
   lights: Record<string, LightOperateResult>;
   daylight_lux: number;
 }
+
+// ---- Component 16: the "get familiar" layer (simura.explain) ----
+//
+// One attribution is one decomposition of a model's own equation at the
+// operating point in front of you; one Explanation is that attribution
+// rendered for one reader at one depth. The dashboard shows Explanations and
+// keeps the Attributions beside them, because the physics view wants the raw
+// terms and the two must never disagree.
+
+export interface AttributionTerm {
+  key: string;
+  label: string;
+  value: number;
+  unit: string;
+  symbol: string;
+  why: string;
+  /** 0..1 share of the outcome this term accounts for. */
+  share: number;
+  /** Below the threshold worth a sentence — still shown at the physics level. */
+  negligible: boolean;
+}
+
+export interface Attribution {
+  key: string;
+  label: string;
+  /** "additive" (things that sum) or "multiplicative" (things that scale). */
+  kind: "additive" | "multiplicative";
+  total: number;
+  unit: string;
+  equation: string;
+  card: string | null;
+  operating_point: Record<string, number>;
+  /** False when an input had to be inferred rather than read from the model. */
+  exact: boolean;
+  caveat: string | null;
+  /** The terms very nearly cancel: an equilibrium, not a calm. */
+  balanced: boolean;
+  dominant: string | null;
+  opposing: string[];
+  terms: AttributionTerm[];
+}
+
+export type ExplainLevel = "overview" | "working" | "physics";
+
+export interface Explanation {
+  key: string;
+  label: string;
+  headline: string;
+  summary: string;
+  causes: string[];
+  value: string;
+  equation: string;
+  terms: AttributionTerm[];
+  operating_point: Record<string, number>;
+  assumptions: string[];
+  limits: string[];
+  caveat: string | null;
+  card: string | null;
+  card_title: string;
+  follow_ups: { question: string; card: string }[];
+  level: ExplainLevel;
+  domain: string;
+  next_level: ExplainLevel | null;
+}
+
+export interface ExplainResponse {
+  domain: string;
+  level: ExplainLevel;
+  explanations: Explanation[];
+  attributions: Attribution[];
+  /** Present on /api/systems/{id}/explain only. */
+  system_id?: string;
+  /** "model" (read from the running solver) or "telemetry" (inferred). */
+  source?: "model" | "telemetry";
+  exact?: boolean;
+}
+
+export interface ParamCard {
+  key: string;
+  label: string;
+  unit: string;
+  what: string;
+  why: string;
+  typical: string;
+  feel: string;
+}
+
+export interface ModelCard {
+  id: string;
+  component: "batteries" | "wires" | "lights" | "twin";
+  title: string;
+  one_line: string;
+  what: string;
+  why: string;
+  source: string;
+  equation: string;
+  assumptions: string[];
+  /** What the model cannot tell you. Every card has some.  */
+  limits: string[];
+  params: ParamCard[];
+  reads_like: Record<string, string>;
+  see_also: string[];
+}
+
+export interface GlossaryEntry {
+  term: string;
+  short: string;
+  card: string | null;
+  aliases: string[];
+  unit: string;
+}
+
+export interface ExplainDomain {
+  key: string;
+  label: string;
+  who: string;
+  cares_about: string[];
+  vocabulary: Record<string, string>;
+  power_unit: string;
+  home_component: string | null;
+}
+
+export interface ExplainLevelInfo {
+  key: ExplainLevel;
+  label: string;
+  who: string;
+  shows: string[];
+}
+
+export interface ExplainLenses {
+  domains: ExplainDomain[];
+  levels: ExplainLevelInfo[];
+  default_domain: string;
+  default_level: ExplainLevel;
+}

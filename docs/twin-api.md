@@ -33,6 +33,7 @@ the MQTT **envelope** (`{system_id, timestamp, telemetry}`) — never the simula
 | `GET` | `/api/systems/{id}/anomaly/history?minutes=&bucket_s=` | Anomaly-score history. |
 | `GET` | `/api/systems/{id}/assessment` | Latest full assessment (diagnosis, per-cell SoH, RUL, safety). |
 | `GET` | `/api/systems/{id}/assessment/history?minutes=&bucket_s=` | State-of-health history. |
+| `GET` | `/api/systems/{id}/explain?domain=&level=&series=&parallel=` | What this twin is doing and why, decomposed from the model's own equations. Reports `source: "model"` when the twin core owns the running simulation (exact — it can read the fault and weather coefficients telemetry cannot carry) or `source: "telemetry"` when the operating point had to be inferred from the latest frame, in which case every attribution says so. Defaults to the hottest cell. |
 
 **Validation** (see [Validation](validation.md))
 
@@ -71,6 +72,24 @@ the MQTT **envelope** (`{system_id, timestamp, telemetry}`) — never the simula
 | `POST` | `/api/lights/validation/run` | Validate against one bundled standard (`{standard_id}`): per-point error, absolute and relative. |
 | `POST` | `/api/lights/validation/live` | Validate the daylight model against **live** measured irradiance (`{latitude, longitude, hours?}`). The only route that reaches the network. |
 | `POST` | `/api/lights/validation/upload` | Validate against a user's photometric CSV (multipart: `file`, `quantity`, `x_col`, `value_col`, `key_col`). |
+
+**Getting familiar** (Component 16 — see [explain.md](explain.md))
+
+| Method | Path | Returns |
+|--------|------|---------|
+| `GET` | `/api/explain/cards` | Plain-language model cards, optionally `?component=batteries\|wires\|lights\|twin`. Each carries its equation, assumptions, per-domain restatements, its settable parameters, and what it **cannot** tell you. |
+| `GET` | `/api/explain/cards/{card_id}` | One card in full. 404 for an unknown id. |
+| `GET` | `/api/explain/glossary` | Every glossary entry, or `?term=` for one — aliases resolve, so `soc` finds "state of charge". |
+| `GET` | `/api/explain/lenses` | The two knobs a reader has: the domain lenses and the three disclosure levels, in one call, because a picker needs both. |
+| `GET` | `/api/explain/coverage` | Which parameters in the code have a card and which do not, in both directions. Served rather than only tested, so the anti-drift claim is checkable from outside. |
+| `POST` | `/api/explain/battery` | Explain a telemetry frame you already have (`{frame, spec, series?, parallel?, domain?, level?}`). Pure compute — nothing touches the store or the broker. |
+| `POST` | `/api/explain/wires` | Explain a wire run. Takes the **same body** as `/api/wires/evaluate`, plus `domain`/`level`. `at_temp_c` pins the conductor temperature, for a caller whose network solve already owns it — without it the explanation would quietly disagree with the drop shown beside it. |
+| `POST` | `/api/explain/lights` | Explain a lighting **design**. Takes the **same body** as `/api/lights/evaluate`, plus `domain`/`level`. |
+| `POST` | `/api/explain/lamp` | Explain one **luminaire** on the supply it actually has. Takes one entry of `/api/lights/operate`'s body. Returns why it is producing less than its rating (by re-running the lamp model with one condition changed at a time) and what each watt bought. |
+
+Every response carries both `explanations` (rendered for one reader at one depth) and
+`attributions` (the raw decomposition). They are two views of one computation, so a
+client showing the physics level and a client showing the headline can never disagree.
 
 **Weather**
 

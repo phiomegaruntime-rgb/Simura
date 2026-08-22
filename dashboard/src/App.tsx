@@ -1,7 +1,13 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from "react";
-import { fetchFleet, fetchSystems } from "./api/client";
+import { explainSystem, fetchFleet, fetchSystems } from "./api/client";
 import { useTelemetry } from "./api/useTelemetry";
-import type { CellAnomaly, FleetResponse, SystemInfo } from "./api/types";
+import type {
+  CellAnomaly,
+  ExplainLevel,
+  ExplainResponse,
+  FleetResponse,
+  SystemInfo,
+} from "./api/types";
 import TopBar from "./components/TopBar";
 import HomeView from "./components/HomeView";
 import FleetOverview from "./components/FleetOverview";
@@ -11,6 +17,8 @@ import WiresView from "./components/WiresView";
 import WiresValidationView from "./components/WiresValidationView";
 import LightsView from "./components/LightsView";
 import LightsValidationView from "./components/LightsValidationView";
+import LearnView from "./components/LearnView";
+import ExplainPanel from "./components/ExplainPanel";
 import Footer from "./components/Footer";
 import HealthBanner from "./components/HealthBanner";
 import StatTile from "./components/StatTile";
@@ -73,6 +81,14 @@ export default function App() {
   // of the built-in views and decides its own width.
   const activeModule = useMemo(() => moduleForView(view), [view]);
 
+  // Component 16: the live explanation of the selected system. The lens is app
+  // state rather than panel state so a reader who has chosen "safety" keeps it
+  // when they switch systems -- their field does not change between packs.
+  const [domain, setDomain] = useState("newcomer");
+  const [level, setLevel] = useState<ExplainLevel>("overview");
+  const [explanation, setExplanation] = useState<ExplainResponse | null>(null);
+  const [explainError, setExplainError] = useState<string | null>(null);
+
   const openSystem = (id: string) => {
     setSelected(id);
     setView("system");
@@ -81,6 +97,42 @@ export default function App() {
   const { connected, latest, series, events, anomaly, anomalySeries, assessment } =
     useTelemetry(selected);
   const tel = latest?.telemetry ?? null;
+
+  // Re-explain on a slow cadence of its own rather than on every telemetry
+  // frame: an explanation is a paragraph, and a paragraph that rewrites itself
+  // ten times a second is unreadable. Five seconds is fast enough to follow a
+  // developing fault and slow enough to finish a sentence.
+  useEffect(() => {
+    if (view !== "system" || !selected) return;
+    let active = true;
+    const load = () =>
+      explainSystem(selected, domain, level)
+        .then((r) => {
+          if (!active) return;
+          setExplanation(r);
+          setExplainError(null);
+        })
+        .catch((err: Error) => {
+          if (!active) return;
+          setExplanation(null);
+          setExplainError(err.message);
+        });
+    load();
+    const id = setInterval(load, 5000);
+    return () => {
+      active = false;
+      clearInterval(id);
+    };
+    // The telemetry frame is deliberately not a dependency: the lens and the
+    // system decide when to refetch, and the interval covers the rest.
+  }, [view, selected, domain, level]);
+
+  // Clear a stale explanation the moment the system changes, so the panel never
+  // shows one pack's answer under another pack's heading.
+  useEffect(() => {
+    setExplanation(null);
+    setExplainError(null);
+  }, [selected]);
 
   const selectedSystem = systems.find((s) => s.system_id === selected) ?? null;
   const [nSeries, nParallel] = useMemo(() => {
@@ -104,7 +156,9 @@ export default function App() {
   const anomLevel = anomaly ? anomalyLevel(anomaly.max_score) : "good";
   const safeLevel = assessment ? safetyLevel(assessment.safety_state) : "good";
   const diag = assessment?.diagnosis;
-  const level = tel
+  // Named to keep it clear of the explanation's disclosure level above -- these
+  // are two different things that were both called "level".
+  const healthLevel = tel
     ? worst(tempLevel(tel.max_temp_c), imbalanceLevel(tel.voltage_imbalance_v), anomLevel, safeLevel)
     : "good";
   const reason = tel
@@ -162,6 +216,8 @@ export default function App() {
           <LightsView />
         ) : view === "lightsvalidation" ? (
           <LightsValidationView />
+        ) : view === "learn" ? (
+          <LearnView />
         ) : view === "validation" ? (
           <ValidationView />
         ) : view === "fleet" ? (
@@ -177,7 +233,21 @@ export default function App() {
           </div>
         ) : (
           <>
-            <HealthBanner level={level} reason={reason} simTimeS={tel.time_s} />
+            <HealthBanner level={healthLevel} reason={reason} simTimeS={tel.time_s} />
+
+            {/* Above the numbers, not below them. A newcomer arriving at a
+                running pack should meet a sentence they can read before they
+                meet a DCIR figure; the numbers are one click deeper, and the
+                expert loses nothing because the panel starts collapsed. */}
+            <ExplainPanel
+              data={explanation}
+              domain={domain}
+              level={level}
+              onDomain={setDomain}
+              onLevel={setLevel}
+              error={explainError}
+              subtitle={selectedSystem?.name ?? selected ?? undefined}
+            />
 
             <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
               <StatTile label="Pack voltage" value={tel.pack_voltage_v.toFixed(1)} unit="V" />

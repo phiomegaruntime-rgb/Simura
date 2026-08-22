@@ -21,6 +21,7 @@ so you don't even need to `pip install` first.
 | [`light_spectrum.py`](light_spectrum.py) | **Where efficacy comes from** — every technology's spectrum side by side, what dimming does to a filament (the light goes orange and the efficacy collapses), and the colour-versus-efficacy trade inside one LED. Nothing is looked up; it all falls out of Planck's law and the CIE observer. |
 | [`light_weather.py`](light_weather.py) | **Weather-coupled lighting** — the same ambient makes a fluorescent tube dim and an LED bright, a street light follows the real sunset on a photocell, and a daylit office dims against the sky. `--live` points it at a real place via Open-Meteo. |
 | [`field_station.py`](field_station.py) | **Every component on one site** — design an off-grid workshop end to end: the sky over it, the lamps that light it, the cable that feeds them, the voltage drop that comes *back* and changes the light, and the battery that carries the night. The one example where the components compose instead of standing alone. `--live` pulls the real sky from Open-Meteo. |
+| [`explain_a_fault.py`](explain_a_fault.py) | **An explanation that is computed, not written** — run the same pack healthy and with an internal short, and watch the fault-heat term appear in the ranking. Nothing tells the explainer a fault is present; the term is there because the fault put heat into the model's heat balance. Also shows the same pack read by three different domains, and one quantity at three depths. |
 | [`connectors/`](connectors/) | Config files for the real-hardware connectors (Modbus / OPC-UA / MQTT). See [connectors/README.md](connectors/README.md). |
 
 ```bash
@@ -38,6 +39,7 @@ python examples/light_planning.py
 python examples/light_spectrum.py
 python examples/light_weather.py
 python examples/field_station.py
+python examples/explain_a_fault.py
 ```
 
 These double as the friendliest **good first areas** for contributors: a new

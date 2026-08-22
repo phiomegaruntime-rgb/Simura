@@ -56,6 +56,7 @@ nav:
       - Weather: weather.md
       - Wires: wires.md
       - Lights: lights.md
+      - Getting familiar: explain.md
       - Dashboard: dashboard.md
   - Project:
       - Roadmap: roadmap.md

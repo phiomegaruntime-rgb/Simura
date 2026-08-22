@@ -2,6 +2,9 @@ import type {
   BuilderOptions,
   CreateSystemPayload,
   DatasetSpec,
+  ExplainLenses,
+  ExplainLevel,
+  ExplainResponse,
   FaultSpec,
   FleetResponse,
   InstallationAssessment,
@@ -32,6 +35,8 @@ import type {
   WireFaultInput,
   WireStandardSpec,
   WireUploadOptions,
+  GlossaryEntry,
+  ModelCard,
   WireValidationReport,
 } from "./types";
 
@@ -685,4 +690,85 @@ export async function operateLights(body: LightOperateBody): Promise<LightOperat
     body: JSON.stringify(body),
   });
   return jsonOrThrow(res, "operate lights");
+}
+
+// ---- Component 16: the "get familiar" layer ----
+//
+// The reference calls (cards, glossary, lenses) are immutable for the life of a
+// build, so each is fetched once and memoised: a tooltip must not cost a round
+// trip, and a card browser must not refetch on every keystroke.
+
+let lensesCache: Promise<ExplainLenses> | null = null;
+let glossaryCache: Promise<GlossaryEntry[]> | null = null;
+let cardsCache: Promise<ModelCard[]> | null = null;
+
+/** Who is reading, and how deep — both pickers in one call. */
+export function fetchLenses(): Promise<ExplainLenses> {
+  lensesCache ??= fetch("/api/explain/lenses").then((r) => jsonOrThrow(r, "load lenses"));
+  return lensesCache;
+}
+
+/** Every glossary entry, for tooltips. Aliases are resolved client-side. */
+export function fetchGlossary(): Promise<GlossaryEntry[]> {
+  glossaryCache ??= fetch("/api/explain/glossary").then((r) => jsonOrThrow(r, "load glossary"));
+  return glossaryCache;
+}
+
+/** Every plain-language model card. */
+export function fetchCards(): Promise<ModelCard[]> {
+  cardsCache ??= fetch("/api/explain/cards").then((r) => jsonOrThrow(r, "load model cards"));
+  return cardsCache;
+}
+
+/** Explain what a live twin is doing and why, in one domain's terms. */
+export async function explainSystem(
+  systemId: string,
+  domain: string,
+  level: ExplainLevel,
+  cell?: { series: number; parallel: number },
+): Promise<ExplainResponse> {
+  const q = new URLSearchParams({ domain, level });
+  if (cell) {
+    q.set("series", String(cell.series));
+    q.set("parallel", String(cell.parallel));
+  }
+  const res = await fetch(`/api/systems/${encodeURIComponent(systemId)}/explain?${q}`);
+  return jsonOrThrow(res, "explain system");
+}
+
+/** Explain a wire run — same body as `evaluateRun`, plus a lens. */
+export async function explainWireRun(body: Record<string, unknown>): Promise<ExplainResponse> {
+  const res = await fetch("/api/explain/wires", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return jsonOrThrow(res, "explain wire run");
+}
+
+/** Explain a lighting design — same body as `evaluateInstallation`, plus a lens. */
+export async function explainLighting(body: Record<string, unknown>): Promise<ExplainResponse> {
+  const res = await fetch("/api/explain/lights", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return jsonOrThrow(res, "explain lighting");
+}
+
+/**
+ * Explain one luminaire on the supply it has actually got.
+ *
+ * Takes one entry of `operateLights`'s body, because that is the shape a caller
+ * solving a *site* already has — as opposed to `explainLighting`, which explains
+ * a *room* designed by the lumen method. Returns two attributions: why the
+ * fitting is producing less than its rating, and what each watt bought.
+ */
+export async function explainLamp(body: Record<string, unknown>): Promise<ExplainResponse> {
+  const res = await fetch("/api/explain/lamp", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return jsonOrThrow(res, "explain lamp");
 }

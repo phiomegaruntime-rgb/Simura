@@ -53,11 +53,16 @@ safety is worth real money and prevents real fires — you can't safely prototyp
 wires, and lights today; more later) is an independent physics library that plugs into
 the same twin core, dashboard, and validation approach.
 
-**Phase 2 (next)** turns that substrate outward — a browser-first front door (the 3D
-sandbox as the way in), a layer that lets a non-expert *get familiar* with a model,
-memory that persists across projects instead of restarting from zero, and multiplayer
-collaboration across domains. That is where the mission actually lives. See the
-[roadmap](docs/roadmap.md).
+**Phase 2 (in progress)** turns that substrate outward, which is where the mission
+actually lives. The first piece is built: a layer that lets a non-expert **get familiar**
+with a model. Ask what a running system is doing and why, in your own field's terms and
+at whichever of three depths you want, and the answer is *computed* — Simura decomposes
+the model's own governing equation at the operating point in front of you and builds the
+sentence from whichever term actually won, so an explanation cannot drift away from the
+physics it describes. Still to come: a five-minute first simulation, memory that persists
+across projects instead of restarting from zero, multiplayer collaboration across
+domains, and community-contributed physics. See [getting familiar](docs/explain.md) and
+the [roadmap](docs/roadmap.md).
 
 ## Quick start
 
@@ -320,12 +325,17 @@ diagnosis/RUL/safety → hardware connectors → fleet, validation, builder, lif
 weather); **Wires** adds a reusable conductor library with planning and validation; and
 **Lights** adds spectral physics and lighting design across every source family.
 
-**Phase 2 — the mission layer (next).** Turn the substrate into the *CRM for simulations*
-the mission describes: a browser-first front door (the 3D sandbox as the way in), a "get
-familiar" layer that explains a model to a non-expert, memory that persists across
-projects instead of restarting from zero, multiplayer collaboration across domains, and
-community-contributed physics. Full detail in [docs/roadmap.md](docs/roadmap.md); design
-in [docs/architecture.md](docs/architecture.md).
+**Phase 2 — the mission layer (in progress).** Turn the substrate into the *CRM for
+simulations* the mission describes. The **"get familiar" layer is done** (Component 16):
+`simura.explain` answers *what is this system doing, and why* in your own field's terms,
+at whichever of three depths you want — and it does it by decomposing the model's own
+governing equation at the live operating point rather than by storing sentences about
+what usually happens. See [docs/explain.md](docs/explain.md). Still to come: a
+five-minute first simulation, memory that persists across projects instead of restarting
+from zero, multiplayer collaboration across domains, and community-contributed physics.
+Everything in Phase 2 runs locally — the hosted, public-URL half is parked under
+*Deferred — hosting & deployment*. Full detail in [docs/roadmap.md](docs/roadmap.md);
+design in [docs/architecture.md](docs/architecture.md).
 
 ## Contributing
 

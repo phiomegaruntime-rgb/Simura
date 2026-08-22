@@ -12,13 +12,14 @@ that anybody can simulate*.
   connectors, validation against real data, and fleet control. This is the un-fakeable
   part — "anybody can simulate" is worthless on top of toy physics, so the substrate
   had to earn trust first. **Components 1–14 below are Phase 1.**
-- **Phase 2 — the mission layer (next).** Turn that substrate into what the mission
+- **Phase 2 — the mission layer (in progress).** Turn that substrate into what the mission
   actually describes: a place where people from *different domains* get familiar with a
   simulation without becoming an expert in all of it, where knowledge *persists across
   projects* instead of restarting from zero, and where "everyone" can actually get in.
   Phase 1 optimised physics fidelity and breadth; Phase 2 optimises accessibility,
-  collaboration, and reuse. It is laid out in **Phase 2 — the mission layer** at the
-  end of this document.
+  collaboration, and reuse. **Components 15–19** are Phase 2, laid out at the end of this
+  document — all of them built to run locally, with the hosted half of the original sketch
+  parked in **Deferred — hosting & deployment**.
 
 ## Component 1 — Physics simulator ✅ (v0.1)
 
@@ -569,7 +570,7 @@ failure. Full suite **291 pass**. The dashboard type-checks and builds.
 
 ---
 
-# Phase 2 — the mission layer (planned)
+# Phase 2 — the mission layer (in progress)
 
 Phase 1 built a substrate that is faithful, validated, and broad — three physics
 components on one twin core. But the mission was never "the most faithful physics
@@ -589,6 +590,13 @@ Almost none of the *CRM primitives* exist yet — the substrate is single-player
 and starts fresh each time. The components below add them. They are ordered by leverage
 on the mission, not by dependency; each is independently useful, in the Phase-1 spirit.
 
+**Scope note — Phase 2 ships without hosting.** Every component below is built to run on
+the stack that already exists: `pip install -e .`, `docker compose up`, or the Vite dev
+server. The hosted, zero-install, public-URL half of the original Phase-2 sketch is
+**deferred** and collected in [Deferred — hosting & deployment](#deferred--hosting--deployment)
+at the end of this document. Nothing in Components 15–19 depends on it: the mission layer
+must stand complete on a laptop, exactly as the substrate does today.
+
 ## Component 15 — The front door 🚧 (planned)
 
 **Goal.** Make "everyone" able to physically get in. Today every entry point —
@@ -596,35 +604,158 @@ on the mission, not by dependency; each is independently useful, in the Phase-1 
 simulation engineer, i.e. the exact generalist the mission says shouldn't have to exist.
 A non-expert can't reach a running twin.
 
-- [ ] **The 3D sandbox becomes the primary entry**, not a demo on top of the libraries.
-  "Step into a world, pull a physics-backed part from the catalog, place it, wire it,
-  run it, break it" is a better answer to *anybody can simulate* than any API. Promote the
-  Three.js sandbox from showcase to front door; the domain libraries are what make its
-  parts real.
-- [ ] **Zero-install, hosted Simura** — reach a live twin in a browser with no pip and no
-  Docker. This absorbs and promotes the Phase-1 backlog item (Helm / K8s manifests): the
-  deployment work was never just ops, it is what lets "everyone" in.
 - [ ] **A five-minute first simulation** for someone who has never opened the repo —
   a guided path from landing to a running, breakable system, with no reading required.
+  This is the whole of Component 15 that ships locally, and it is the part that actually
+  changes whether a newcomer gets anywhere.
+- [ ] **A guided-tour surface in the dashboard** — the landing page hands you a system
+  instead of a menu, and the first run is scripted end to end: build, run, break, read.
+- ⏸️ **Zero-install, hosted Simura** — deferred, see
+  [Deferred — hosting & deployment](#deferred--hosting--deployment).
+- ⏸️ **The 3D sandbox as primary entry** — the sandbox is Component 13, developed
+  separately and not part of this repository. The open front door must work without it,
+  so promoting it is tracked with the sandbox, not here.
 
-## Component 16 — The "get familiar" layer 🚧 (planned)
+## Component 16 — The "get familiar" layer ✅ (v0.17)
 
 **Goal.** Deliver the literal crux of the mission: *get familiar with a simulation
-without becoming an expert in all of it.* The dashboard today **reports** telemetry to
-experts; it does not **teach** newcomers. This is the largest gap between what's built
+without becoming an expert in all of it.* The dashboard **reported** telemetry to
+experts; it did not **teach** newcomers. This was the largest gap between what was built
 and what was promised.
 
-- [ ] **Progressive disclosure in every view** — a legible default surface, with the
-  physics depth one click away, so a newcomer isn't met with DCIR and split-flux fields
-  on arrival.
-- [ ] **Plain-language model cards** — every component, model, and parameter carries a
-  "what is this, and why does it matter" written for someone from another domain. The
-  battery person can read the wire model without a cable-pulling background, and vice
-  versa.
-- [ ] **A domain-aware explainer / copilot** — ask "what is this system doing and why,"
-  in your own field's terms, and get an answer grounded in the live twin. This is the
-  single feature that makes "familiar without expertise" literally true, and it fits the
-  project's character: the explanation is *computed from* the model, the way efficacy is.
+### The design decision everything follows from
+
+**An explanation is *attributed*, never asserted.** Nothing in the code says "high
+current makes a pack hot," or "long runs drop voltage," or "a dirty lens costs you lux."
+The explainer evaluates each term of the model's *own* governing equation at the live
+operating point, ranks the terms by how much they actually contribute, and the sentence
+follows from whichever term won. Change the physics and the explanation changes with it,
+because the explanation **is** the physics read out loud — the same commitment that made
+efficacy computed, never looked up, in Component 14.
+
+### Physics comes in two shapes, so there are exactly two decompositions
+
+That is the whole architecture. *Things that add* — a cell's heat balance, a conductor's
+heat balance, a terminal-voltage law, a split-flux illuminance field: the terms carry the
+outcome's unit and sum to it, and the interesting cases are the ones where they cancel.
+*Things that multiply* — a resistance, a lumen-method illuminance, a lamp's efficacy: no
+factor has the outcome's unit, and shares come from `|ln factor|`, the only measure of
+"how much did this move the answer" that does not depend on the order the factors are
+written in. Every explanation in the project is one of those two.
+
+### What was built
+
+- [x] **`simura.explain`** — a standalone package, no new dependencies. `attribution`
+  (the two decompositions), `battery` / `wires` / `lights` (the decompositions themselves,
+  read out of the real models), `cards` + `glossary` (the plain-language layer),
+  `domains` + `levels` (the two lenses), and `narrate` (grammar only — the physics
+  decides the claim, this decides the verb).
+- [x] **Exact, and inferred — and the difference is reported.** `explain_pack` reads the
+  running solver, including each cell's own manufacturing spread and the fault and
+  weather coefficients telemetry deliberately cannot carry. `explain_frame` has only a
+  telemetry frame, so it recovers the internal states by **inverting the model** — the
+  chemistry's curve gives OCV at the reported charge and the terminal law gives
+  polarisation as the residual. That path is marked `exact=False` and carries the reason,
+  including the useful consequence: if a cell sits well above the equilibrium the balance
+  predicts, *that gap is the size of the heat source the frame cannot see*. Getting the
+  exact path required one line in `simura.sim.simulator` — the applied `FaultEffect` is
+  now kept, because a bare pack cannot see fault heat and explaining a faulted pack
+  without it reports the cell shedding heat it is still making.
+- [x] **Plain-language model cards** — 21 cards over 58 parameters, written for someone
+  from another domain, each carrying its equation, its assumptions, a "reads like, if
+  your field is…" restatement per domain, and — non-negotiably — **what it cannot tell
+  you**. `coverage()` reflects over the real dataclasses and option registries and
+  reports drift in both directions; the suite asserts both lists are empty and
+  `GET /api/explain/coverage` serves the report, so the anti-drift claim is checkable
+  from outside. A new parameter without a card is a failing build.
+- [x] **A 33-entry glossary** with aliases, underlined in place wherever explanation
+  prose shows a term — because a link to a glossary is a page nobody visits mid-sentence.
+- [x] **Two separate knobs.** Seven **domain** lenses (newcomer, battery, thermal,
+  safety, operations, electrical, lighting) choosing vocabulary and priority, and three
+  **disclosure levels** (overview / working / physics). Separate because a lighting
+  designer reading a battery wants *their own* words and *more* depth, which one
+  beginner-to-expert slider cannot express. A lens reorders and never drops.
+- [x] **Progressive disclosure that adds and never contradicts** — the headline is
+  byte-identical at all three depths and every figure quoted at the top reappears
+  unrounded at the bottom. A caveat is the one thing that does *not* vary with depth:
+  trustworthiness is not a detail a deeper level reveals.
+- [x] **API** — `GET /api/explain/{cards,cards/{id},glossary,lenses,coverage}`,
+  `POST /api/explain/{battery,wires,lights}` (pure compute, and taking the *same body* as
+  the check they explain, so the two can never describe different systems), and
+  `GET /api/systems/{id}/explain`, which reports `source: model | telemetry`.
+- [x] **Dashboard** — an explanation panel *above* the stat tiles on every running
+  system, the same panel beside the wiring-planner and lighting-planner results, a
+  **Learn** landing card browsing every model card and the glossary, and glossary
+  tooltips in the prose.
+- [x] **CLI + example** — `python -m simura.explain --battery --short --domain safety`
+  and `examples/explain_a_fault.py`, which runs one pack healthy and one shorted and
+  shows the fault-heat term appearing in the ranking.
+- [x] **Explaining a single luminaire, and counterfactual chains.** `POST
+  /api/explain/lamp` takes one entry of `/api/lights/operate`'s body — the shape a
+  caller solving a *site* has, rather than a room — and answers the question a real
+  fitting poses: it is rated for so many lumens and is producing fewer, so which of
+  dimming, supply voltage, ambient, wear and faults did it? Those are conditions
+  rather than separable terms, so each factor comes from **re-running the lamp model
+  with exactly one condition changed**, chained from the rated point to the real one
+  so the product telescopes exactly. It is the decomposition that makes the
+  cable-dims-the-lamp coupling legible: the same 10% supply sag costs a filament a
+  third of its light and a driven LED nothing at all, and neither number is written
+  down anywhere.
+- [x] **Explanations that cannot contradict the panel beside them.** `at_temp_c` on
+  `POST /api/explain/wires` pins the conductor temperature a network solve already
+  owns — it reflects the rest of the circuit, the weather and any faults, none of
+  which a conductor spec carries. Being slightly wrong is recoverable; sitting one
+  click from a number you quietly disagree with is not, because the reader has no
+  way to tell which to believe.
+- [x] **A zero factor takes the whole share.** The logarithm does not reach zero but
+  the physics does, and without the rule a burnt-out lamp is reported as dark
+  because of its supply voltage — true of the arithmetic, absurd as an explanation.
+- [x] **Reusable by optional modules.** `ExplainPanel` takes a `bare` prop so a
+  module with its own surface embeds it without nested card chrome. The 3D sandbox
+  (Component 13, developed separately) uses it for a **Why** tab on its
+  right-click inspect panel, so a rack, a cable and a luminaire in the world are
+  each explained by the same computation the dashboard uses — built from the solve
+  already on screen, so the two tabs agree.
+
+### Verified
+
+`test_explain` (86) is built around the one thing worth testing: that the sentences are
+downstream of the physics. **Fidelity** — every attribution reproduces the number the
+physics library itself reports, to that library's own precision: the heat balance against
+`simura.sim.pack`'s derivative, the voltage sag against the terminal law, the wire drop
+against `evaluate_run`, the illuminance against the lumen method, and lamp efficacy
+against the model across all four source families over a 15× efficacy range.
+**Responsiveness** — perturb the model and the ranking must move: a short adds a
+fault-heat term that was not there and splits the charge rate into useful and wasted; the
+same cell is generation-dominated cold and cooling-dominated warm; length beats gauge on
+a long run and loses on a short one; a filament beats an LED on radiant efficiency and
+loses tenfold on spectrum; dirtying the luminaires moves the dominant factor to dirt.
+**Honesty** — inferred attributions carry their caveat at every depth, and a bare pack is
+shown reporting less heat than the simulator does. **Rendering** — the headline is
+identical across depths, the physics level hides nothing the ranking called negligible,
+a directional verb is never contradicted by a negative number, and a lens never drops an
+attribution. Plus a **vocabulary lint** that catches the class of bug that actually
+happened during the build: a replacement phrase that reads fine alone and turns "Rated
+ampacity" into "Rated the safe current for this cable".
+
+`test_explain_api` (24) covers the routes: 4xx rather than 5xx on a bad lens, unknown
+card, unsizeable conductor or unknown lamp; plain-JSON serialisation everywhere; and that
+the live route takes the exact path when the twin core owns the model and the inferred
+path when it does not, and says which.
+
+One test earns its place by having caught a live bug rather than guarding a
+hypothetical: a lamp past its rated life produces zero lumens, and ranking by
+logarithm alone blamed its *supply voltage* for the darkness.
+
+Full suite **413 pass**. The dashboard type-checks and builds.
+
+### Backlog
+- Trajectory attribution — everything here explains one operating point, so "it has been
+  getting worse for ten minutes" is not yet sayable.
+- Cross-cell ranking in the battery explainer (today one cell at a time, plus pack-wide
+  imbalance); the anomaly layer covers the peer comparison separately.
+- Counterfactuals — "what would this be at AWG 10" is a re-run the panel could offer
+  rather than a number the reader has to go and produce.
 
 ## Component 17 — Memory that survives the project 🚧 (planned)
 
@@ -640,6 +771,9 @@ living record of systems, decisions, and know-how that a next project inherits.
 - [ ] **Reusable templates** — promote a validated system into a starting point others
   can build on, turning one engineer's work into everyone's head start.
 
+The library is backed by the TimescaleDB the twin core already runs; it needs no service
+Simura does not already start.
+
 ## Component 18 — Multiplayer 🚧 (planned)
 
 **Goal.** A CRM is multiplayer by definition; the substrate is single-player (one
@@ -647,13 +781,16 @@ optional API key, one dashboard, no accounts). Make a simulation something peopl
 *together, across domains*.
 
 - [ ] **Accounts, roles, and a shared workspace** — more than one person on the same twin,
-  with a notion of who they are and what they do.
+  with a notion of who they are and what they do. Local-first: an instance on one machine
+  or one LAN serves a whole team.
 - [ ] **Role- and domain-based views onto one model** — the same system shown differently
   to different people: the battery engineer sees electro-thermal detail, the safety lead
   sees alarms and margins, operations sees fleet health. One model, many legible faces.
-- [ ] **Sharing and annotation** — a link to a live twin, comments on a model, a way for a
-  domain-A person to hand a domain-B person a view they can actually read. This is what
-  turns "a simulation tool" into "a common ground."
+  This reuses Component 16's domain lenses rather than inventing a second vocabulary.
+- [ ] **Sharing and annotation** — comments on a model, and a way for a domain-A person to
+  hand a domain-B person a view they can actually read.
+- ⏸️ **Public share links to a live twin** — deferred with the hosting work; a link is
+  only shareable once there is somewhere to host it.
 
 ## Component 19 — Breadth from the community 🚧 (planned)
 
@@ -664,17 +801,45 @@ component you write*.
 - [ ] **A contribution path for physics components** — the plumbing already exists (the
   standalone-library shape, the optional dashboard-module slot); make it a documented,
   first-class way for others to add a domain.
-- [ ] **A component catalog / marketplace** — discover, install, and share community
-  physics parts, so the LFP curves, the sodium-arc spectra, and the next domain family
-  come from the people who know them best.
+- [ ] **A local component catalog** — discover and install community physics parts from a
+  plain manifest, so the LFP curves, the sodium-arc spectra, and the next domain family
+  come from the people who know them best. Git-and-a-file, not a service.
+- ⏸️ **A hosted marketplace/registry** — deferred with the hosting work.
 
 ---
 
 ### What "done" looks like for Phase 2
 
-A person who has never written a line of simulation code opens Simura in a browser, is
-handed a system someone else built, understands what it is doing and why without becoming
-an expert in it, changes something, breaks it on purpose to learn, and leaves a note the
-next person will find. When that is true, "anybody can simulate" is no longer a mantra —
-it is the product.
+A person who has never written a line of simulation code opens Simura, is handed a system
+someone else built, understands what it is doing and why without becoming an expert in it,
+changes something, breaks it on purpose to learn, and leaves a note the next person will
+find. When that is true, "anybody can simulate" is no longer a mantra — it is the product.
 
+---
+
+## Deferred — hosting & deployment
+
+**Why deferred:** the project has no hosting budget. Every item here needs a paid,
+always-on service — a cluster, a managed database, a public domain, a registry — that no
+one is funding, and none of them make the software better on the machine of the person
+running it; they only change *where* it runs. So they are parked, in full, until there is
+both a reason and a means to run infrastructure.
+
+**Rule this imposes on the rest of Phase 2:** hosting is never a prerequisite. Anything
+that would only work once deployed is either redesigned to work locally or moved to this
+list. Components 15–19 are written to that rule.
+
+- [ ] **Zero-install, hosted Simura** *(was Component 15)* — reach a live twin in a
+  browser with no `pip` and no Docker.
+- [ ] **Helm charts / Kubernetes manifests** *(was the Component 7 backlog)* — the
+  deployment work Component 15 was going to absorb.
+- [ ] **A public demo instance** with seeded systems, and a landing page that points at it.
+- [ ] **Public share links to a live twin** *(was Component 18)* — hand someone a URL, not
+  a `docker compose` command.
+- [ ] **A hosted component marketplace/registry** *(was Component 19)* — the served half of
+  the catalog. The local, manifest-driven half stays in Component 19.
+- [ ] **Multi-tenant hardening** — the isolation, quotas and abuse controls a shared public
+  instance would need, which a laptop or a team LAN does not.
+- [ ] **Managed TimescaleDB / object storage** for anything the above persists.
+
+None of these block a single checkbox in Components 15–19.

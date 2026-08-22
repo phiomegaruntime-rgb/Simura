@@ -40,14 +40,38 @@ from ..builder import (
     preview,
     validate_spec,
 )
+from ..explain import (
+    coverage,
+    define,
+    get_card,
+    list_cards,
+    list_domains,
+    list_terms,
+    render_all,
+)
+from ..explain.battery import (
+    explain_frame as explain_battery_frame,
+    explain_pack as explain_battery_pack,
+    imbalance_from_pack as explain_battery_imbalance,
+)
+from ..explain.levels import DEFAULT_LEVEL, LEVEL_INFO
+from ..explain.lights import (
+    efficacy as explain_lamp_efficacy,
+    explain_installation as explain_light_installation,
+    output as explain_lamp_output,
+)
+from ..explain.domains import DEFAULT_DOMAIN
+from ..explain.wires import explain_run as explain_wire_run
 from ..fleet import build_fleet
 from ..lights import (
     LightSpec,
     build_layout,
+    build_light,
     catalog_options as light_catalog_options,
     evaluate_installation,
     recommend_lamp,
 )
+from ..lights.lamp import Light
 from ..lights.validation import (
     get_standard as get_light_standard,
     list_standards as list_light_standards,
@@ -58,6 +82,7 @@ from ..lights.validation import (
 from ..wires import (
     WireSpec,
     build_network,
+    build_wire,
     catalog_options,
     evaluate_run,
     recommend_gauge,
@@ -941,6 +966,282 @@ async def lights_validation_upload(
         return result
     finally:
         os.unlink(tmp.name)
+
+
+# ==========================================================================
+# Component 16 -- the "get familiar" layer (simura.explain)
+#
+# Two kinds of route. The reference ones (cards, glossary, lenses, coverage)
+# are static and cacheable. The explaining ones decompose something: either a
+# payload the caller supplies (pure compute, no DB, no broker -- the same shape
+# the wires and lights routes already have), or the live twin, which is the one
+# route here that reaches into running state.
+# ==========================================================================
+
+
+@router.get("/api/explain/cards")
+async def explain_cards(
+    component: str = Query("", description="batteries | wires | lights | twin"),
+) -> list[dict[str, Any]]:
+    """Plain-language model cards, optionally narrowed to one component."""
+    try:
+        cards = list_cards(component or None)
+    except KeyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    return [c.to_dict() for c in cards]
+
+
+@router.get("/api/explain/cards/{card_id}")
+async def explain_card(card_id: str) -> dict[str, Any]:
+    try:
+        return get_card(card_id).to_dict()
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from None
+
+
+@router.get("/api/explain/glossary")
+async def explain_glossary(
+    term: str = Query("", description="look up one term (or any of its aliases)"),
+) -> Any:
+    """The whole glossary, or one entry when ``term`` is given."""
+    if term:
+        entry = define(term)
+        if entry is None:
+            raise HTTPException(status_code=404, detail=f"no glossary entry for {term!r}")
+        return entry.to_dict()
+    return [e.to_dict() for e in list_terms()]
+
+
+@router.get("/api/explain/lenses")
+async def explain_lenses() -> dict[str, Any]:
+    """The two knobs a reader has: whose vocabulary, and how deep.
+
+    Served together because a picker needs both, and one round trip is the
+    difference between the control appearing with the page and appearing after
+    it.
+    """
+    return {
+        "domains": [d.to_dict() for d in list_domains()],
+        "levels": [lv.to_dict() for lv in LEVEL_INFO],
+        "default_domain": DEFAULT_DOMAIN,
+        "default_level": DEFAULT_LEVEL,
+    }
+
+
+@router.get("/api/explain/coverage")
+async def explain_coverage() -> dict[str, Any]:
+    """Which parameters in the code have a plain-language card, and which do not.
+
+    Exposed deliberately. The claim this component makes is that the prose
+    cannot drift from the model, and a claim like that should be checkable from
+    outside rather than only in a test file.
+    """
+    return coverage()
+
+
+def _rendered(attributions, domain: str | None, level: str | None) -> dict[str, Any]:
+    """Render a list of attributions, or 400 on a bad lens."""
+    try:
+        explanations = render_all(attributions, domain or None, level or None)
+    except KeyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    return {
+        "domain": explanations[0].domain if explanations else (domain or DEFAULT_DOMAIN),
+        "level": explanations[0].level if explanations else (level or DEFAULT_LEVEL),
+        "explanations": [e.to_dict() for e in explanations],
+        "attributions": [a.to_dict() for a in attributions],
+    }
+
+
+@router.post("/api/explain/battery")
+async def explain_battery(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Explain a telemetry frame you already have.
+
+    ``{"frame": {...PackTelemetry}, "spec": {...SystemSpec}, "series"?, "parallel"?,
+    "domain"?, "level"?}``. Pure compute -- nothing here touches the store or the
+    broker, so it works against a frame from anywhere, including one a client
+    captured minutes ago.
+    """
+    frame = body.get("frame")
+    if not isinstance(frame, dict) or not frame.get("cells"):
+        raise HTTPException(status_code=400, detail="body needs a 'frame' with cells")
+    try:
+        spec = SystemSpec.from_dict(body.get("spec") or {})
+        atts = explain_battery_frame(
+            frame, spec, body.get("series"), body.get("parallel")
+        )
+    except (IndexError, ValueError, KeyError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    return _rendered(atts, body.get("domain"), body.get("level"))
+
+
+@router.post("/api/explain/wires")
+async def explain_wires_route(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Explain a wire run.
+
+    Takes the same body as :func:`wires_evaluate` -- ``{spec: {...WireSpec},
+    current_a, system_voltage_v?, round_trip?, ...}`` -- so a caller that has
+    just run the check can ask for the explanation of it unchanged.
+
+    ``at_temp_c`` pins the conductor temperature instead of letting this route
+    re-derive it. A caller that solved a whole network already has a temperature
+    that accounts for the rest of the circuit, the weather and any faults;
+    without this the explanation would sit next to a number it quietly disagrees
+    with.
+    """
+    try:
+        spec = build_wire(body.get("spec", body.get("wire", {})))
+        atts = explain_wire_run(
+            spec,
+            current_a=float(body.get("current_a", 0.0)),
+            system_voltage_v=(
+                float(body["system_voltage_v"]) if body.get("system_voltage_v") else None
+            ),
+            round_trip=bool(body.get("round_trip", False)),
+            ambient_c=(float(body["ambient_c"]) if body.get("ambient_c") is not None else None),
+            solar_w=float(body.get("solar_w", 0.0)),
+            at_temp_c=(float(body["at_temp_c"]) if body.get("at_temp_c") is not None else None),
+        )
+    except (ValueError, KeyError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    return _rendered(atts, body.get("domain"), body.get("level"))
+
+
+@router.post("/api/explain/lamp")
+async def explain_lamp_route(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Explain one luminaire running on the supply it has actually got.
+
+    Takes one entry of :func:`lights_operate`'s body -- ``{spec: {...LightSpec},
+    supply_voltage_v?, drive?, ambient_c?, elapsed_s?, faults?, weather?}`` --
+    because that is the shape a caller solving a *site* already has, as opposed
+    to :func:`explain_lights_route`, which explains a *room* designed by the
+    lumen method.
+
+    Two attributions come back. ``lamp.output`` answers the question a fitting
+    in a real installation poses -- it is rated for so many lumens and is
+    producing fewer, so which of dimming, supply voltage, ambient, wear and
+    faults is responsible -- by re-running the lamp model with one condition
+    changed at a time. ``lamp.efficacy`` answers the other half: of the light it
+    is producing, how much did each watt buy.
+    """
+    from ..lights.config import build_fault as build_light_fault
+    from ..lights.faults import accumulate as accumulate_light_faults
+    from ..lights.environment import LightEnvironmentCoupling
+
+    try:
+        spec = build_light(body.get("spec", body.get("lamp", {})))
+        light = Light(spec)
+        light.time_lit_s = 1e9          # a settled fitting, not a warming one
+
+        ambient_c = body.get("ambient_c")
+        weather = _weather_from_body(body)
+        if weather is not None and ambient_c is None:
+            ambient_c = LightEnvironmentCoupling(
+                **(body.get("coupling") or {})
+            ).apply(weather).ambient_c
+        supply_v = float(body.get("supply_voltage_v", light.supply_voltage_v))
+        drive = float(body.get("drive", 1.0))
+        elapsed_s = float(body.get("elapsed_s", 0.0))
+        faults = [build_light_fault(f) for f in body.get("faults", [])]
+
+        effect = accumulate_light_faults(faults, light, elapsed_s) if faults else None
+        point = light.at_supply(
+            supply_v,
+            drive=drive,
+            ambient_c=ambient_c,
+            effect=effect,
+        ).point
+        atts = [
+            explain_lamp_output(
+                spec,
+                supply_voltage_v=supply_v,
+                drive=drive,
+                ambient_c=ambient_c,
+                faults=faults,
+                elapsed_s=elapsed_s,
+            ),
+            explain_lamp_efficacy(point),
+        ]
+    except (ValueError, KeyError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    return _rendered(atts, body.get("domain"), body.get("level"))
+
+
+@router.post("/api/explain/lights")
+async def explain_lights_route(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Explain a lighting design.
+
+    Takes the same body as :func:`lights_evaluate` -- ``{spec: {...LightSpec},
+    n_luminaires, length_m, width_m, ...}`` -- so a caller that has just run the
+    check can ask for the explanation of it unchanged.
+    """
+    try:
+        spec = build_light(body.get("spec", body.get("lamp", {})))
+        assessment = evaluate_installation(
+            spec,
+            n_luminaires=int(body.get("n_luminaires", 1)),
+            length_m=float(body.get("length_m", 8.0)),
+            width_m=float(body.get("width_m", 6.0)),
+            mounting_height_m=float(body.get("mounting_height_m", 2.5)),
+            task=str(body.get("task", "office")),
+            target_lux=(float(body["target_lux"]) if body.get("target_lux") else None),
+            maintenance_hours=float(body.get("maintenance_hours", 0.0)),
+            dirt_frac=float(body.get("dirt_frac", 0.1)),
+        )
+        lamp = Light(spec)
+        lamp.time_lit_s = 1e9          # judge a warmed-up lamp, not a cold one
+        atts = explain_light_installation(assessment, point=lamp.operating_point())
+    except (ValueError, KeyError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    return _rendered(atts, body.get("domain"), body.get("level"))
+
+
+@router.get("/api/systems/{system_id}/explain")
+async def explain_system(
+    system_id: str,
+    request: Request,
+    domain: str = Query("", description="whose vocabulary to use"),
+    level: str = Query("", description="overview | working | physics"),
+    series: int | None = Query(None, description="which cell; defaults to the hottest"),
+    parallel: int | None = Query(None),
+) -> dict[str, Any]:
+    """Explain what a live twin is doing and why, grounded in its own model.
+
+    Two paths, and the response says which one it took. When the twin core is
+    *running* the simulation it can read the solver's state directly, including
+    the fault and weather coefficients telemetry cannot carry -- that answer is
+    exact. For a real-time feed, or a simulation that is registered but stopped,
+    the operating point is inferred from the latest frame instead, and every
+    attribution comes back marked inexact with the reason attached.
+    """
+    mgr = _sim_manager(request)
+    simulator = mgr.simulator(system_id)
+
+    if simulator is not None:
+        atts = list(explain_battery_pack(simulator, series, parallel))
+        source = "model"
+        if simulator.pack.shape[0] * simulator.pack.shape[1] >= 2:
+            atts.append(explain_battery_imbalance(simulator.pack))
+    else:
+        envelope = _live(request).get(system_id)
+        frame = (envelope or {}).get("telemetry")
+        if not frame:
+            raise HTTPException(
+                status_code=404, detail=f"no live telemetry for system '{system_id}'"
+            )
+        stored = await _store(request).get_system(system_id)
+        spec = SystemSpec.from_dict((stored or {}).get("spec") or {})
+        try:
+            atts = explain_battery_frame(frame, spec, series, parallel)
+        except (IndexError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+        source = "telemetry"
+
+    out = _rendered(atts, domain or None, level or None)
+    out["system_id"] = system_id
+    out["source"] = source
+    out["exact"] = all(a.exact for a in atts)
+    return out
 
 
 @router.get("/api/systems")

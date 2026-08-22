@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "simura"
-version = "0.14.0"
+version = "0.17.0"
 description = "An open, physics-based digital twin for battery energy storage systems (BESS)."
 readme = "README.md"
 requires-python = ">=3.10"

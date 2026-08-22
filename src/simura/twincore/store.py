@@ -81,6 +81,16 @@ class TimescaleStore:
             )
         return [_system_row(r) for r in rows]
 
+    async def get_system(self, system_id: str) -> Optional[dict[str, Any]]:
+        """One registry row, or ``None``. Used where only the spec is wanted."""
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT system_id, name, config, source, spec, run_state, "
+                "created_at, updated_at FROM systems WHERE system_id = $1",
+                system_id,
+            )
+        return _system_row(row) if row else None
+
     async def create_system(
         self,
         system_id: str,

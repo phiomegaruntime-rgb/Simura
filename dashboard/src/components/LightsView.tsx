@@ -10,12 +10,15 @@ import {
 } from "recharts";
 import {
   evaluateLighting,
+  explainLighting,
   fetchLightCatalog,
   fetchSpectrum,
   recommendLamp,
   solveLayout,
 } from "../api/client";
 import type {
+  ExplainLevel,
+  ExplainResponse,
   InstallationAssessment,
   LampRecommendation,
   LayoutResult,
@@ -23,6 +26,7 @@ import type {
   LampType,
   SpectrumResponse,
 } from "../api/types";
+import ExplainPanel from "./ExplainPanel";
 import StatTile from "./StatTile";
 import { NumField, ProblemList, Row, Section, SelectField, Toggle } from "./formkit";
 
@@ -51,6 +55,11 @@ export default function LightsView() {
   const [solar, setSolar] = useState(0);
 
   const [assessment, setAssessment] = useState<InstallationAssessment | null>(null);
+  // Where the light went: of the ceiling in the reader's own terms, four
+  // factors between the lamps' lumens and the desk.
+  const [why, setWhy] = useState<ExplainResponse | null>(null);
+  const [domain, setDomain] = useState("lighting");
+  const [level, setLevel] = useState<ExplainLevel>("overview");
   const [rec, setRec] = useState<LampRecommendation | null>(null);
   const [layout, setLayout] = useState<LayoutResult | null>(null);
   const [spectrum, setSpectrum] = useState<SpectrumResponse | null>(null);
@@ -95,22 +104,31 @@ export default function LightsView() {
     weather: weatherBody(),
   });
 
+  // The explanation takes the same body as the check, so the two can never be
+  // describing different installations.
+  const checkBody = () => ({
+    spec: { lamp_type: lampId },
+    n_luminaires: count,
+    maintenance_hours: maintenanceHours,
+    ...room(),
+  });
+
   const check = () =>
     run(async () => {
       setRec(null);
-      setAssessment(
-        await evaluateLighting({
-          spec: { lamp_type: lampId },
-          n_luminaires: count,
-          maintenance_hours: maintenanceHours,
-          ...room(),
-        })
-      );
+      const body = checkBody();
+      const [a, w] = await Promise.all([
+        evaluateLighting(body),
+        explainLighting({ ...body, domain, level }),
+      ]);
+      setAssessment(a);
+      setWhy(w);
     });
 
   const recommend = () =>
     run(async () => {
       setAssessment(null);
+      setWhy(null);
       const r = await recommendLamp({
         ...room(),
         family: family === "any" ? null : family,
@@ -263,6 +281,23 @@ export default function LightsView() {
       </Section>
 
       {assessment && <AssessmentPanel a={assessment} />}
+      {assessment && (
+        <ExplainPanel
+          data={why}
+          domain={domain}
+          level={level}
+          onDomain={(d) => {
+            setDomain(d);
+            explainLighting({ ...checkBody(), domain: d, level }).then(setWhy).catch(() => {});
+          }}
+          onLevel={(l) => {
+            setLevel(l);
+            explainLighting({ ...checkBody(), domain, level: l }).then(setWhy).catch(() => {});
+          }}
+          title="Where the light comes from, and where it goes"
+          subtitle="Efficacy against the 683 lm/W ceiling, and the losses between the lamps and the desk."
+        />
+      )}
       {rec && <RecommendPanel rec={rec} />}
       {layout && <LayoutPanel layout={layout} />}
 

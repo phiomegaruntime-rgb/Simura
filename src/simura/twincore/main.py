@@ -112,7 +112,7 @@ app = FastAPI(
     title="Simura Twin Core",
     description="Ingests BESS telemetry over MQTT, persists to TimescaleDB, and "
     "serves the live twin (single-system + whole-fleet) over REST + WebSocket.",
-    version="0.14.0",
+    version="0.17.0",
     lifespan=lifespan,
 )
 _origins = [o.strip() for o in get_settings().cors_origins.split(",") if o.strip()]

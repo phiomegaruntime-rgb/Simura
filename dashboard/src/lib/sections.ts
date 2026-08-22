@@ -21,12 +21,13 @@ export type CoreView =
   | "wires"
   | "wiresvalidation"
   | "lights"
-  | "lightsvalidation";
+  | "lightsvalidation"
+  | "learn";
 
 // `string & {}` keeps the literals in autocomplete while admitting module keys.
 export type View = CoreView | (string & {});
 
-export type CoreSectionKey = "batteries" | "wires" | "lights";
+export type CoreSectionKey = "batteries" | "wires" | "lights" | "learn";
 
 export type SectionKey = CoreSectionKey | (string & {});
 
@@ -100,6 +101,21 @@ export const SECTIONS: Section[] = [
       { key: "lightsvalidation", label: "Validation" },
     ],
   },
+  // Not a physics component — the reading room for all three of them. It earns
+  // a landing card of its own because "what does this mean" is a thing people
+  // arrive wanting, not only a thing they need mid-task.
+  {
+    key: "learn",
+    label: "Learn",
+    tagline: "Plain language",
+    description:
+      "Every model in Simura and every setting it takes, explained for someone who works in a different field — including, plainly, what each model cannot tell you.",
+    contents: ["Model cards", "Glossary", "Settings"],
+    accent: "#9085e9",
+    icon: "📘",
+    landing: "learn",
+    nav: [{ key: "learn", label: "Model cards" }],
+  },
 ];
 
 // Which section a view belongs to. The per-system detail view lives under Batteries.
@@ -112,6 +128,7 @@ const VIEW_SECTION: Record<Exclude<CoreView, "home">, CoreSectionKey> = {
   wiresvalidation: "wires",
   lights: "lights",
   lightsvalidation: "lights",
+  learn: "learn",
 };
 
 // Every section the app can show: the built-ins, then whatever modules are

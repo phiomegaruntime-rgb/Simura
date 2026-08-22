@@ -97,6 +97,24 @@ class SimManager:
         sim = self._sims.get(system_id)
         return sim.run_state if sim else None
 
+    def simulator(self, system_id: str):
+        """The live :class:`~simura.sim.simulator.Simulator`, or ``None``.
+
+        ``None`` for a real-time feed (there is no model behind it) and for a
+        simulation that is registered but not currently running. The explainer
+        uses this to decompose a running twin from the solver's own state --
+        including the fault coefficients telemetry deliberately cannot carry --
+        and falls back to inferring them from the telemetry frame when it is
+        ``None``.
+        """
+        sim = self._sims.get(system_id)
+        return sim.simulator if sim else None
+
+    def spec(self, system_id: str) -> SystemSpec | None:
+        """The spec a managed simulation was built from, or ``None``."""
+        sim = self._sims.get(system_id)
+        return sim.spec if sim else None
+
     # -- lifecycle --------------------------------------------------------
     def create(self, spec: SystemSpec, speed: float | None = None) -> ManagedSim:
         """Register a simulation (stopped). Overwrites any prior one with that id."""

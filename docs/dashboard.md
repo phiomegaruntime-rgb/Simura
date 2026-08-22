@@ -10,7 +10,8 @@ hardware feeds.
 
 The dashboard opens on a **landing page of cards**, one per simulation
 component — **Batteries** (the BESS twin), **Wires** (the conductor library) and
-**Lights** (the lighting designer).
+**Lights** (the lighting designer) — plus **Learn**, which is not a component but the
+reading room for all three.
 The header shows no nav here; the cards *are* the nav. Picking a card drills into
 that component and the header switches to a sub-nav scoped to just that
 component (with a **← Components** link back to the landing). The Simura logo
@@ -19,6 +20,7 @@ returns to the landing from anywhere.
 - **Batteries** → Fleet, Build, Validation.
 - **Wires** → Wiring planner, Validation.
 - **Lights** → Lighting planner, Validation.
+- **Learn** → Model cards.
 
 Optional modules installed under `dashboard/src/modules/` add cards of their own
 here; see [Contributing](contributing.md) for the contract.
@@ -52,6 +54,15 @@ The detail view is the single-pack cockpit:
 
 - **Health banner** — overall status and the reason (safety alarm → diagnosis →
   early warning → nominal).
+- **Explanation panel** — *above* the numbers, deliberately. A newcomer arriving
+  at a live pack should meet a sentence they can read before they meet a DCIR
+  figure. It says what the pack is doing and why, decomposed from the model's own
+  equations, in whichever domain's vocabulary you pick and at whichever of three
+  depths (*overview / working / physics*). Depth adds and never contradicts — the
+  headline is identical at all three, so an expert clicking down loses nothing and
+  a newcomer staying at the top is not being told a different story. A badge says
+  whether the answer was read from the running model (exact) or inferred from
+  telemetry. See [Getting familiar](explain.md).
 - **Stat tiles** — voltage, power, SoC, max temp, anomaly score.
 - **Cell heatmap** — per-cell temperature / voltage / SoC, with an absolute
   thermal colorbar so an overheating cell visibly stands out, plus anomaly
@@ -103,6 +114,24 @@ broker, no database), in two views.
   upload for your own measurements.
 
 See [Lights](lights.md).
+
+## Learn (Component 16)
+
+The reading room. Every model in the project as a **model card** — what it is, why
+it matters, its equation, its assumptions, its settings, and, given the same
+prominence as the rest, **what it cannot tell you**. Each card can be re-read in
+another field's words ("reads like, if your field is…"), which is the mission
+stated as a UI control.
+
+Beside it, the **glossary**: every term the dashboard shows that a newcomer would
+not know, in one sentence each. Those same terms are underlined wherever they turn
+up in explanation prose elsewhere, with the definition on hover — a link to a
+glossary is a page nobody visits mid-sentence.
+
+The wiring planner and the lighting planner carry the same explanation panel the
+per-system view does, decomposing the check that is on screen.
+
+See [Getting familiar](explain.md).
 
 ## Design system
 

@@ -41,6 +41,13 @@ class Simulator:
         # Wall-clock epoch that sim time t=0 maps to, so the weather source is
         # queried at real timestamps. Defaults to "now" at the start of run().
         self.weather_epoch0 = weather_epoch0
+        # The fault + weather effect applied on the most recent step, kept so
+        # that anything inspecting a running simulation can see the *same*
+        # coefficients the solver used rather than re-deriving them. Telemetry
+        # deliberately does not carry these -- a real BMS could not report a
+        # cell's fault current -- so this is the one route to them, and
+        # simura.explain uses it to explain a live pack exactly.
+        self.effect = None
 
     def run(self) -> Iterator[PackTelemetry]:
         """Yield telemetry once per timestep until ``duration_s`` is reached."""
@@ -63,6 +70,7 @@ class Simulator:
                 effect.extra_heat_w = effect.extra_heat_w + env.solar_heat_w
                 ambient_c = env.ambient_c
 
+            self.effect = effect
             self.pack.step(pack_current, self.sim.dt_s, effect, ambient_c=ambient_c)
             self.t += self.sim.dt_s
             yield snapshot(self.pack, self.t, pack_current, weather=sample)

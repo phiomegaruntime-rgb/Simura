@@ -1,6 +1,13 @@
 import { useEffect, useState } from "react";
-import { evaluateWire, fetchWireCatalog, recommendWire } from "../api/client";
-import type { RunAssessment, Recommendation, WireCatalog } from "../api/types";
+import { evaluateWire, explainWireRun, fetchWireCatalog, recommendWire } from "../api/client";
+import type {
+  ExplainLevel,
+  ExplainResponse,
+  RunAssessment,
+  Recommendation,
+  WireCatalog,
+} from "../api/types";
+import ExplainPanel from "./ExplainPanel";
 import StatTile from "./StatTile";
 import { NumField, ProblemList, Row, Section, SelectField, Toggle } from "./formkit";
 
@@ -30,6 +37,11 @@ export default function WiresView() {
 
   const [assessment, setAssessment] = useState<RunAssessment | null>(null);
   const [rec, setRec] = useState<Recommendation | null>(null);
+  // The same check, decomposed: which of material, gauge, length, temperature,
+  // current and the return conductor is actually costing the voltage.
+  const [why, setWhy] = useState<ExplainResponse | null>(null);
+  const [domain, setDomain] = useState("electrical");
+  const [level, setLevel] = useState<ExplainLevel>("overview");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -51,23 +63,33 @@ export default function WiresView() {
   const weatherBody = () =>
     weatherOn ? { air_temp_c: airTemp, wind_speed_ms: wind, solar_w_m2: solar } : undefined;
 
+  // Both calls take the same body, so the explanation is always of the check
+  // shown beside it rather than of a separately-assembled run.
+  const runBody = () => ({
+    spec: { material, awg, length_m: length, insulation, ambient_temp_c: ambient },
+    current_a: current,
+    system_voltage_v: voltage,
+    max_drop_pct: maxDrop,
+    round_trip: roundTrip,
+    weather: weatherBody(),
+  });
+
   const evaluate = () =>
     run(async () => {
       setRec(null);
-      const a = await evaluateWire({
-        spec: { material, awg, length_m: length, insulation, ambient_temp_c: ambient },
-        current_a: current,
-        system_voltage_v: voltage,
-        max_drop_pct: maxDrop,
-        round_trip: roundTrip,
-        weather: weatherBody(),
-      });
+      const body = runBody();
+      const [a, w] = await Promise.all([
+        evaluateWire(body),
+        explainWireRun({ ...body, domain, level }),
+      ]);
       setAssessment(a);
+      setWhy(w);
     });
 
   const recommend = () =>
     run(async () => {
       setAssessment(null);
+      setWhy(null);
       const r = await recommendWire({
         current_a: current,
         length_m: length,
@@ -151,6 +173,23 @@ export default function WiresView() {
       </Section>
 
       {assessment && <AssessmentPanel a={assessment} />}
+      {assessment && (
+        <ExplainPanel
+          data={why}
+          domain={domain}
+          level={level}
+          onDomain={(d) => {
+            setDomain(d);
+            explainWireRun({ ...runBody(), domain: d, level }).then(setWhy).catch(() => {});
+          }}
+          onLevel={(l) => {
+            setLevel(l);
+            explainWireRun({ ...runBody(), domain, level: l }).then(setWhy).catch(() => {});
+          }}
+          title="Why this run comes out the way it does"
+          subtitle="Each factor is a multiple of one metre of one square millimetre of copper at 20 °C."
+        />
+      )}
       {rec && <RecommendPanel rec={rec} onUse={(w) => { setMaterial(w.material); setAwg(w.awg); setInsulation(w.insulation); }} />}
 
       <CatalogTable catalog={catalog} />
