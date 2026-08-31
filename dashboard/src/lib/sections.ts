@@ -22,12 +22,20 @@ export type CoreView =
   | "wiresvalidation"
   | "lights"
   | "lightsvalidation"
-  | "learn";
+  | "learn"
+  | "library"
+  | "space";
 
 // `string & {}` keeps the literals in autocomplete while admitting module keys.
 export type View = CoreView | (string & {});
 
-export type CoreSectionKey = "batteries" | "wires" | "lights" | "learn";
+export type CoreSectionKey =
+  | "batteries"
+  | "wires"
+  | "lights"
+  | "space"
+  | "learn"
+  | "library";
 
 export type SectionKey = CoreSectionKey | (string & {});
 
@@ -101,6 +109,23 @@ export const SECTIONS: Section[] = [
       { key: "lightsvalidation", label: "Validation" },
     ],
   },
+  // Not a physics component either — the building the other three stand in.
+  // It earns a card rather than a tab inside any one of them because a floor
+  // plan is what all of them read: it tells the weather where the site is, the
+  // lighting planner how big each room is, the wiring planner how far the cable
+  // runs, and a battery whether the sun reaches it.
+  {
+    key: "space",
+    label: "Building",
+    tagline: "Import a BIM model",
+    description:
+      "Import an IFC, gbXML or DXF model as a 2D floor plan every other component can simulate against — and see, beside it, exactly which of its numbers the importer had to assume.",
+    contents: ["Floor plan", "What was assumed", "Rooms & routes"],
+    accent: "#ec835a",
+    icon: "🏢",
+    landing: "space",
+    nav: [{ key: "space", label: "Floor plan" }],
+  },
   // Not a physics component — the reading room for all three of them. It earns
   // a landing card of its own because "what does this mean" is a thing people
   // arrive wanting, not only a thing they need mid-task.
@@ -116,6 +141,22 @@ export const SECTIONS: Section[] = [
     landing: "learn",
     nav: [{ key: "learn", label: "Model cards" }],
   },
+  // Also not a physics component — the record of everything built with them.
+  // It is a landing card rather than a tab inside Batteries because what it
+  // holds is systems, notes and reasons from every component and every project,
+  // which is not a thing that belongs inside any one of them.
+  {
+    key: "library",
+    label: "Library",
+    tagline: "Systems & reasons",
+    description:
+      "Every system anyone here has saved, with the reason behind each choice, what it was forked from, and what was learned running it — so the next project starts from the last one instead of from nothing.",
+    contents: ["Saved systems", "Templates", "Lineage"],
+    accent: "#3fb6a8",
+    icon: "📚",
+    landing: "library",
+    nav: [{ key: "library", label: "Saved systems" }],
+  },
 ];
 
 // Which section a view belongs to. The per-system detail view lives under Batteries.
@@ -128,7 +169,9 @@ const VIEW_SECTION: Record<Exclude<CoreView, "home">, CoreSectionKey> = {
   wiresvalidation: "wires",
   lights: "lights",
   lightsvalidation: "lights",
+  space: "space",
   learn: "learn",
+  library: "library",
 };
 
 // Every section the app can show: the built-ins, then whatever modules are

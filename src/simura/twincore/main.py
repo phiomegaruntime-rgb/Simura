@@ -15,6 +15,7 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from ..builder import SystemSpec
+from ..library import bundled_entries
 from .api import router, ws_router
 from .auth import require_api_key
 from .ingest import run_ingest
@@ -57,6 +58,20 @@ async def _restore_simulations(store: TimescaleStore, sim_manager: SimManager) -
             log.exception("could not restore simulation %s", s.get("system_id"))
 
 
+async def _seed_library(store: TimescaleStore) -> None:
+    """Put the starter systems in an *empty* library, and never again.
+
+    Only when empty: once somebody has used the library, re-seeding would keep
+    handing back starter systems they deliberately deleted, and a library that
+    argues with its owner is not memory. Component 17.
+    """
+    if await store.library_list():
+        return
+    for entry in bundled_entries():
+        await store.library_save(entry.to_dict())
+    log.info("seeded the system library with %d starter entries", len(bundled_entries()))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
@@ -65,6 +80,7 @@ async def lifespan(app: FastAPI):
     await store.connect(settings.db_connect_retries, settings.db_connect_retry_s)
     await store.init_schema()
     log.info("connected to database and ensured schema")
+    await _seed_library(store)
 
     live = LatestState()
     anomaly_live = LatestState()
@@ -112,7 +128,7 @@ app = FastAPI(
     title="Simura Twin Core",
     description="Ingests BESS telemetry over MQTT, persists to TimescaleDB, and "
     "serves the live twin (single-system + whole-fleet) over REST + WebSocket.",
-    version="0.17.0",
+    version="0.18.0",
     lifespan=lifespan,
 )
 _origins = [o.strip() for o in get_settings().cors_origins.split(",") if o.strip()]

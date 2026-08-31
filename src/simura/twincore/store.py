@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -77,7 +77,7 @@ class TimescaleStore:
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(
                 "SELECT system_id, name, config, source, spec, run_state, "
-                "created_at, updated_at FROM systems ORDER BY system_id"
+                "library_entry_id, created_at, updated_at FROM systems ORDER BY system_id"
             )
         return [_system_row(r) for r in rows]
 
@@ -86,7 +86,7 @@ class TimescaleStore:
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
                 "SELECT system_id, name, config, source, spec, run_state, "
-                "created_at, updated_at FROM systems WHERE system_id = $1",
+                "library_entry_id, created_at, updated_at FROM systems WHERE system_id = $1",
                 system_id,
             )
         return _system_row(row) if row else None
@@ -98,6 +98,7 @@ class TimescaleStore:
         source: str,
         spec: dict | None,
         run_state: str,
+        library_entry_id: str | None = None,
     ) -> None:
         """Register a system with its source/spec/run_state (create or replace).
 
@@ -107,13 +108,16 @@ class TimescaleStore:
         async with self._pool.acquire() as conn:
             await conn.execute(
                 """
-                INSERT INTO systems (system_id, name, source, spec, run_state, updated_at)
-                VALUES ($1, $2, $3, $4, $5, now())
+                INSERT INTO systems (
+                    system_id, name, source, spec, run_state, library_entry_id, updated_at
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, now())
                 ON CONFLICT (system_id) DO UPDATE
                     SET name = COALESCE(EXCLUDED.name, systems.name),
                         source = EXCLUDED.source,
                         spec = EXCLUDED.spec,
                         run_state = EXCLUDED.run_state,
+                        library_entry_id = EXCLUDED.library_entry_id,
                         updated_at = now()
                 """,
                 system_id,
@@ -121,6 +125,7 @@ class TimescaleStore:
                 source,
                 json.dumps(spec) if spec is not None else None,
                 run_state,
+                library_entry_id,
             )
 
     async def set_run_state(self, system_id: str, run_state: str) -> None:
@@ -143,6 +148,125 @@ class TimescaleStore:
                 ):
                     await conn.execute(f"DELETE FROM {table} WHERE system_id = $1", system_id)
                 await conn.execute("DELETE FROM systems WHERE system_id = $1", system_id)
+
+    # -- library (Component 17) -------------------------------------------
+    # Persistence only. Every rule about what an entry is -- when a reason is
+    # required, what a fork means, how a lineage is walked -- lives in
+    # ``simura.library`` and is not repeated here; these methods move
+    # ``Entry.to_dict()`` shaped rows in and out.
+
+    async def library_save(self, entry: dict[str, Any]) -> bool:
+        """Insert an entry with its notes and decisions. False if it already exists.
+
+        Ids are content hashes, so a conflict means the identical entry is
+        already stored: nothing is overwritten, and in particular the notes
+        somebody has since written on it are left alone.
+        """
+        async with self._pool.acquire() as conn:
+            async with conn.transaction():
+                inserted = await conn.fetchval(
+                    """
+                    INSERT INTO library_entries (
+                        entry_id, name, spec, kind, version, parent_id, relation,
+                        source, source_system_id, author, summary, tags, validated,
+                        created_at
+                    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+                    ON CONFLICT (entry_id) DO NOTHING
+                    RETURNING entry_id
+                    """,
+                    entry["entry_id"],
+                    entry["name"],
+                    json.dumps(entry["spec"]),
+                    entry.get("kind", "system"),
+                    int(entry.get("version", 1)),
+                    entry.get("parent_id"),
+                    entry.get("relation", "origin"),
+                    entry.get("source", "builder"),
+                    entry.get("source_system_id"),
+                    entry.get("author", ""),
+                    entry.get("summary", ""),
+                    list(entry.get("tags") or []),
+                    bool(entry.get("validated", False)),
+                    _ts(entry.get("created_at")),
+                )
+                if inserted is None:
+                    return False
+                for note in entry.get("notes") or []:
+                    await _insert_note(conn, entry["entry_id"], note)
+                for decision in entry.get("decisions") or []:
+                    await _insert_decision(conn, entry["entry_id"], decision)
+                return True
+
+    async def library_add_note(self, entry_id: str, note: dict[str, Any]) -> None:
+        async with self._pool.acquire() as conn:
+            await _insert_note(conn, entry_id, note)
+
+    async def library_add_decision(self, entry_id: str, decision: dict[str, Any]) -> None:
+        async with self._pool.acquire() as conn:
+            await _insert_decision(conn, entry_id, decision)
+
+    async def library_set_validated(self, entry_id: str, validated: bool) -> None:
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE library_entries SET validated = $2 WHERE entry_id = $1",
+                entry_id,
+                bool(validated),
+            )
+
+    async def library_delete(self, entry_id: str) -> bool:
+        """Delete one entry (its notes and decisions cascade).
+
+        Children are left pointing at an id that is gone, on purpose: a fork is
+        somebody else's system and must survive the tidying of the design it
+        came from.
+        """
+        async with self._pool.acquire() as conn:
+            tag = await conn.execute("DELETE FROM library_entries WHERE entry_id = $1", entry_id)
+        return tag.endswith("1")
+
+    async def library_list(self) -> list[dict[str, Any]]:
+        """Every entry, with its notes and decisions attached.
+
+        The whole library in one call rather than a page of it: lineage is a
+        walk over the entries, so a partial view would answer "how did this get
+        here" with a partial story. A library is documents, not telemetry -- it
+        does not grow the way a hypertable does.
+        """
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT * FROM library_entries ORDER BY created_at, entry_id"
+            )
+            notes = await conn.fetch(
+                "SELECT entry_id, text, kind, author, at FROM library_notes ORDER BY at, id"
+            )
+            decisions = await conn.fetch(
+                "SELECT entry_id, question, choice, because, params, rejected, author, at "
+                "FROM library_decisions ORDER BY at, id"
+            )
+        by_entry_notes: dict[str, list[dict[str, Any]]] = {}
+        for n in notes:
+            by_entry_notes.setdefault(n["entry_id"], []).append(
+                {"text": n["text"], "kind": n["kind"], "author": n["author"],
+                 "at": _iso(n["at"])}
+            )
+        by_entry_decisions: dict[str, list[dict[str, Any]]] = {}
+        for d in decisions:
+            by_entry_decisions.setdefault(d["entry_id"], []).append(
+                {"question": d["question"], "choice": d["choice"], "because": d["because"],
+                 "params": list(d["params"] or []), "rejected": list(d["rejected"] or []),
+                 "author": d["author"], "at": _iso(d["at"])}
+            )
+        out = []
+        for r in rows:
+            entry = dict(r)
+            if isinstance(entry.get("spec"), str):
+                entry["spec"] = json.loads(entry["spec"])
+            entry["tags"] = list(entry.get("tags") or [])
+            entry["created_at"] = _iso(entry["created_at"])
+            entry["notes"] = by_entry_notes.get(entry["entry_id"], [])
+            entry["decisions"] = by_entry_decisions.get(entry["entry_id"], [])
+            out.append(entry)
+        return out
 
     # -- writes -----------------------------------------------------------
     async def insert_pack(self, system_id: str, ts: datetime, tel: dict[str, Any]) -> None:
@@ -394,6 +518,51 @@ class TimescaleStore:
                     end,
                 )
         return [dict(r) for r in rows]
+
+
+def _ts(value: Any) -> datetime:
+    """An ISO string from the library into a timestamptz, defaulting to now."""
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str) and value:
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            pass
+    return datetime.now(timezone.utc)
+
+
+def _iso(value: Any) -> str:
+    return value.isoformat(timespec="seconds") if isinstance(value, datetime) else str(value)
+
+
+async def _insert_note(conn, entry_id: str, note: dict[str, Any]) -> None:
+    await conn.execute(
+        "INSERT INTO library_notes (entry_id, text, kind, author, at) VALUES ($1,$2,$3,$4,$5)",
+        entry_id,
+        note.get("text", ""),
+        note.get("kind", "note"),
+        note.get("author", ""),
+        _ts(note.get("at")),
+    )
+
+
+async def _insert_decision(conn, entry_id: str, decision: dict[str, Any]) -> None:
+    await conn.execute(
+        """
+        INSERT INTO library_decisions
+            (entry_id, question, choice, because, params, rejected, author, at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+        """,
+        entry_id,
+        decision.get("question", ""),
+        decision.get("choice", ""),
+        decision.get("because", ""),
+        list(decision.get("params") or []),
+        list(decision.get("rejected") or []),
+        decision.get("author", ""),
+        _ts(decision.get("at")),
+    )
 
 
 def _system_row(row: asyncpg.Record) -> dict[str, Any]:

@@ -263,6 +263,10 @@ export interface SystemSpec {
   profile: ProfileSpec;
   faults: FaultSpec[];
   weather: WeatherSpec;
+  // Which building, and which room in it, the system is standing in. Optional
+  // so a spec written before buildings existed still type-checks; the server
+  // fills in `{type: "none"}` for one that omits it.
+  space?: SpaceSpec;
 }
 
 export interface CreateSystemPayload {
@@ -949,4 +953,383 @@ export interface ExplainLenses {
   levels: ExplainLevelInfo[];
   default_domain: string;
   default_level: ExplainLevel;
+}
+
+// ---- Component 17: the system library ----
+//
+// Note what these types do *not* have: no field describing how an entry differs
+// from its parent. That is `LibraryChange[]`, computed by the server from the
+// two specs on every read, so the description of a change cannot fall out of
+// step with the change. The only thing a human writes is the reason.
+
+export type LibraryKind = "system" | "template";
+export type LibraryRelation = "origin" | "revision" | "fork" | "promotion";
+export type LibrarySource = "builder" | "twin" | "import" | "bundled";
+export type NoteKind = "note" | "gotcha" | "result";
+
+export interface LibraryNote {
+  text: string;
+  author: string;
+  kind: NoteKind;
+  at: string;
+}
+
+/** Why a number is the number it is. `params` binds it to the spec keys it covers. */
+export interface LibraryDecision {
+  question: string;
+  choice: string;
+  because: string;
+  params: string[];
+  rejected: string[];
+  author: string;
+  at: string;
+}
+
+export interface LibraryEntry {
+  entry_id: string;
+  name: string;
+  spec: SystemSpec;
+  kind: LibraryKind;
+  version: number;
+  parent_id: string | null;
+  relation: LibraryRelation;
+  source: LibrarySource;
+  source_system_id: string | null;
+  author: string;
+  summary: string;
+  tags: string[];
+  validated: boolean;
+  created_at: string;
+  notes: LibraryNote[];
+  decisions: LibraryDecision[];
+}
+
+/** A list row: the entry plus the two things a list has to show. */
+export interface LibraryRow extends LibraryEntry {
+  child_count: number;
+  /** How this differs from its parent, in one line. Computed, never stored. */
+  change_summary: string;
+}
+
+/** One field that differs between two specs, labelled from the model cards. */
+export interface LibraryChange {
+  path: string;
+  key: string;
+  scope: "spec" | "profile" | "weather" | "fault";
+  label: string;
+  unit: string;
+  before: unknown;
+  after: unknown;
+  kind: "changed" | "added" | "removed";
+  why: string;
+  card: string;
+  ratio: number | null;
+  text: string;
+}
+
+/** A change and the reason that accounts for it — or `null`, which is the finding. */
+export interface ExplainedChange {
+  change: LibraryChange;
+  decision: LibraryDecision | null;
+}
+
+export interface ChangeCoverage {
+  total: number;
+  explained: number;
+  unexplained: LibraryChange[];
+  complete: boolean;
+}
+
+export interface LibrarySummary {
+  entries: number;
+  templates: number;
+  forks: number;
+  roots: number;
+  notes: number;
+  decisions: number;
+  validated: number;
+}
+
+export interface LibraryListResponse {
+  entries: LibraryRow[];
+  summary: LibrarySummary;
+}
+
+/** What `GET /api/library/{id}` answers: the entry, and everything around it. */
+export interface LibraryDetail {
+  entry: LibraryEntry;
+  parent: LibraryEntry | null;
+  changes: ExplainedChange[];
+  coverage: ChangeCoverage;
+  ancestry: LibraryEntry[];
+  children: LibraryRow[];
+  inherited: {
+    notes: (LibraryNote & { from: string; from_name: string })[];
+    decisions: (LibraryDecision & { from: string; from_name: string })[];
+  };
+}
+
+export interface LineageStep {
+  from: string;
+  to: string;
+  relation: LibraryRelation;
+  name: string;
+  version: number;
+  author: string;
+  at: string;
+  changes: ExplainedChange[];
+  coverage: ChangeCoverage;
+}
+
+export interface LibraryTrace {
+  entry_id: string;
+  chain: LibraryEntry[];
+  steps: LineageStep[];
+  generations: number;
+  changes: number;
+  unexplained: number;
+  complete: boolean;
+}
+
+export interface LibraryTreeNode {
+  entry: LibraryEntry;
+  children: LibraryTreeNode[];
+}
+
+// ---------------------------------------------------------------------------
+// The building — an imported BIM model as a 2D floor plan (Component 20)
+// ---------------------------------------------------------------------------
+
+/**
+ * One value the importer supplied because the file did not say.
+ *
+ * `basis` is the sentence a person needs in order to decide whether to trust
+ * it. Rendering the value without the basis is the exact failure the fidelity
+ * record exists to prevent, so the two travel together everywhere.
+ */
+export interface PlanInference {
+  subject: string;
+  field: string;
+  value: unknown;
+  basis: string;
+  provenance: "inferred" | "default";
+}
+
+export interface PlanSkipped {
+  entity: string;
+  count: number;
+  reason: string;
+}
+
+/** How completely a source file was understood. */
+export interface PlanFidelity {
+  source_format: string;
+  source_name: string;
+  source_sha256: string;
+  entities_seen: number;
+  entities_used: number;
+  coverage: number;
+  complete: boolean;
+  inferences: PlanInference[];
+  skipped: PlanSkipped[];
+  warnings: string[];
+  summary: string;
+}
+
+export interface PlanGeoreference {
+  latitude: number | null;
+  longitude: number | null;
+  elevation_m: number | null;
+  north_deg: number;
+  address: string;
+}
+
+export interface PlanLevel {
+  id: string;
+  name: string;
+  elevation_m: number;
+  height_m: number;
+}
+
+/** A room. Measurements are computed server-side so the browser never re-derives them. */
+export interface PlanSpace {
+  id: string;
+  name: string;
+  level_id: string;
+  polygon: [number, number][];
+  height_m: number;
+  occupancy: string;
+  conditioned: boolean | null;
+  setpoint_c: number | null;
+  ceiling_reflectance: number;
+  wall_reflectance: number;
+  floor_reflectance: number;
+  /** Fields on THIS room the importer supplied rather than read. */
+  inferred: string[];
+  area_m2: number;
+  centroid: [number, number];
+  length_m: number;
+  width_m: number;
+  angle_deg: number;
+  /** False means length x width is a best-fit rectangle, not a measurement. */
+  rectangular: boolean;
+}
+
+export interface PlanWall {
+  id: string;
+  level_id: string;
+  axis: [number, number][];
+  thickness_m: number;
+  height_m: number;
+  exterior: boolean;
+  inferred: string[];
+  length_m: number;
+}
+
+export interface PlanOpening {
+  id: string;
+  wall_id: string;
+  kind: "door" | "window" | "opening";
+  along_m: number;
+  width_m: number;
+  height_m: number;
+  sill_m: number;
+  inferred: string[];
+}
+
+export interface FloorPlan {
+  id: string;
+  name: string;
+  source_units: string;
+  imported_at: number;
+  georeference: PlanGeoreference;
+  levels: PlanLevel[];
+  spaces: PlanSpace[];
+  walls: PlanWall[];
+  openings: PlanOpening[];
+  fidelity: PlanFidelity;
+  floor_area_m2: number;
+  bounds: [number, number, number, number];
+}
+
+export interface PlanSummary {
+  id: string;
+  name: string;
+  levels: number;
+  spaces: number;
+  walls: number;
+  openings: number;
+  floor_area_m2: number;
+  size_m: [number, number];
+  occupancies: Record<string, number>;
+  unknown_rooms: number;
+  non_rectangular_rooms: number;
+  located: boolean;
+  latitude: number | null;
+  longitude: number | null;
+  north_deg: number;
+  weather: Record<string, unknown> | null;
+  source_units: string;
+  fidelity: PlanFidelity;
+}
+
+export interface SpaceOptions {
+  types: string[];
+  params: Record<string, Record<string, unknown>>;
+  occupancies: string[];
+  ifc_full_available: boolean;
+  routing_defaults: { tray_height_m: number; slack_frac: number };
+}
+
+/** One room, ready to be handed to the lighting planner. */
+export interface LightingTarget {
+  space_id: string;
+  name: string;
+  level_id: string;
+  task: string;
+  length_m: number;
+  width_m: number;
+  area_m2: number;
+  mounting_height_m: number;
+  ceiling_height_m: number;
+  working_plane_m: number;
+  ceiling_reflectance: number;
+  wall_reflectance: number;
+  floor_reflectance: number;
+  polygon: [number, number][];
+  rectangular: boolean;
+  inferred: string[];
+  /** Why this room cannot honestly be designed as read, if it cannot. */
+  problems: string[];
+  designable: boolean;
+}
+
+export interface SpaceLightingResponse {
+  plan_id: string;
+  targets: LightingTarget[];
+  undesignable: number;
+  rooms?: {
+    space_id: string;
+    name: string;
+    target: LightingTarget;
+    // The LAMP recommendation, not the wire one -- both are called
+    // "Recommendation" on the Python side, in their own modules.
+    recommendation: LampRecommendation;
+  }[];
+  building?: {
+    power_w: number;
+    floor_area_m2: number;
+    power_density_w_per_m2: number;
+    designed: number;
+  };
+}
+
+export interface RouteLeg {
+  kind: "drop" | "horizontal" | "riser";
+  length_m: number;
+  from_point: [number, number] | null;
+  to_point: [number, number] | null;
+  space_id: string;
+  space_name: string;
+  description: string;
+}
+
+export interface CableRoute {
+  length_m: number;
+  horizontal_m: number;
+  vertical_m: number;
+  slack_m: number;
+  legs: RouteLeg[];
+  path: [number, number][];
+  space_ids: string[];
+  problems: string[];
+  ok: boolean;
+}
+
+export interface SpaceRouteResponse {
+  plan_id: string;
+  route: CableRoute;
+  hottest_ambient_c: number | null;
+  wire?: RunAssessment;
+  wire_spec?: { wire_type: string; length_m: number; ambient_temp_c: number };
+}
+
+/** The environment in one room, and the sentence that explains it. */
+export interface SpaceContext {
+  space_id: string;
+  name: string;
+  occupancy: string;
+  indoor: boolean;
+  ambient_c: number;
+  shading_frac: number;
+  basis: string;
+  /** False when the model never said whether the room is conditioned. */
+  stated: boolean;
+}
+
+/** Which building, and which room in it, a system is standing in. */
+export interface SpaceSpec {
+  type: string;
+  params: Record<string, unknown>;
+  space_id: string;
 }

@@ -31,11 +31,26 @@ import type {
   ValidationReport,
   WeatherInput,
   WeatherSample,
+  CableRoute,
+  FloorPlan,
+  LightingTarget,
+  PlanSummary,
+  SpaceContext,
+  SpaceLightingResponse,
+  SpaceOptions,
+  SpaceRouteResponse,
+  PlanSpace,
+  LayoutResult as SpaceLayoutResult,
   WireCatalog,
   WireFaultInput,
   WireStandardSpec,
   WireUploadOptions,
   GlossaryEntry,
+  LibraryDetail,
+  LibraryListResponse,
+  LibraryChange,
+  LibraryTrace,
+  LibraryTreeNode,
   ModelCard,
   WireValidationReport,
 } from "./types";
@@ -772,3 +787,312 @@ export async function explainLamp(body: Record<string, unknown>): Promise<Explai
   });
   return jsonOrThrow(res, "explain lamp");
 }
+
+// ---- the system library (Component 17) ----
+
+/** Saved systems, with a one-line computed diff on every row. */
+export async function fetchLibrary(params: {
+  kind?: string;
+  tag?: string;
+  q?: string;
+} = {}): Promise<LibraryListResponse> {
+  const q = new URLSearchParams();
+  if (params.kind) q.set("kind", params.kind);
+  if (params.tag) q.set("tag", params.tag);
+  if (params.q) q.set("q", params.q);
+  const res = await fetch(`/api/library?${q}`);
+  return jsonOrThrow(res, "load library");
+}
+
+/** One entry with its lineage, its diff from its parent, and what it inherits. */
+export async function fetchLibraryEntry(entryId: string): Promise<LibraryDetail> {
+  const res = await fetch(`/api/library/${encodeURIComponent(entryId)}`);
+  return jsonOrThrow(res, "load library entry");
+}
+
+/** How this system got here: every step from the root, and the reason for it. */
+export async function fetchLibraryTrace(entryId: string): Promise<LibraryTrace> {
+  const res = await fetch(`/api/library/${encodeURIComponent(entryId)}/trace`);
+  return jsonOrThrow(res, "load lineage");
+}
+
+export async function fetchLibraryTree(): Promise<LibraryTreeNode[]> {
+  const res = await fetch("/api/library/tree");
+  return jsonOrThrow(res, "load lineage tree");
+}
+
+async function libraryPost<T>(path: string, body: unknown, what: string): Promise<T> {
+  const res = await fetch(`/api/library${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body ?? {}),
+  });
+  return jsonOrThrow(res, what);
+}
+
+/**
+ * What two specs differ in, in plain language. Pure compute — no library, no
+ * database — so the builder can show what an edit would change before anything
+ * is saved.
+ */
+export async function diffSpecs(
+  before: Partial<SystemSpec>,
+  after: Partial<SystemSpec>,
+): Promise<{ changes: LibraryChange[]; summary: string; count: number }> {
+  return libraryPost("/diff", { before, after }, "diff specs");
+}
+
+export const saveToLibrary = (body: {
+  spec: SystemSpec;
+  name?: string;
+  kind?: string;
+  summary?: string;
+  author?: string;
+  tags?: string[];
+}) => libraryPost<LibraryDetail>("", body, "save to library");
+
+/** Start a new system from an existing one. The server refuses a fork with no reason. */
+export const forkEntry = (
+  entryId: string,
+  body: { name: string; because: string; spec?: SystemSpec; author?: string; summary?: string },
+) => libraryPost<LibraryDetail>(`/${encodeURIComponent(entryId)}/fork`, body, "fork entry");
+
+/** The next version of the same design. Also refuses to run without a reason. */
+export const reviseEntry = (
+  entryId: string,
+  body: { spec: SystemSpec; because: string; author?: string; name?: string },
+) => libraryPost<LibraryDetail>(`/${encodeURIComponent(entryId)}/revise`, body, "revise entry");
+
+export const promoteEntry = (
+  entryId: string,
+  body: { because: string; name?: string; author?: string },
+) => libraryPost<LibraryDetail>(`/${encodeURIComponent(entryId)}/promote`, body, "promote entry");
+
+export const addLibraryNote = (
+  entryId: string,
+  body: { text: string; kind?: string; author?: string },
+) => libraryPost<LibraryDetail>(`/${encodeURIComponent(entryId)}/notes`, body, "add note");
+
+export const addLibraryDecision = (
+  entryId: string,
+  body: { question: string; because: string; params?: string[]; rejected?: string[]; author?: string },
+) => libraryPost<LibraryDetail>(`/${encodeURIComponent(entryId)}/decisions`, body, "record decision");
+
+export const setLibraryValidated = (entryId: string, validated: boolean) =>
+  libraryPost<LibraryDetail>(`/${encodeURIComponent(entryId)}/validated`, { validated }, "set validated");
+
+/**
+ * Run a saved system, remembering which entry it came from.
+ *
+ * `site` is for a caller that has a place of its own — the 3D sandbox stands a
+ * rack in the world's weather and wires it to the world's loads, and neither is
+ * part of the design. Only `weather`, `profile` and `duration_s` are accepted;
+ * anything else is refused, because what runs has to be the design the entry
+ * records. Hand the same field names back to `captureSystem` and the diff comes
+ * out clean.
+ */
+export const instantiateEntry = (
+  entryId: string,
+  body: {
+    system_id?: string;
+    name?: string;
+    autostart?: boolean;
+    site?: Partial<Pick<SystemSpec, "weather" | "profile" | "duration_s">>;
+  } = {},
+) =>
+  libraryPost<{ system_id: string; run_state: string; entry_id: string; site: string[] }>(
+    `/${encodeURIComponent(entryId)}/instantiate`,
+    body,
+    "run saved system",
+  );
+
+/**
+ * Save a running system back — as the next version of the entry it came from.
+ *
+ * `site` names the fields the caller supplied itself; they are taken back off
+ * before the entry is recorded, so what is saved differs from its parent by what
+ * somebody *did* to the system rather than by where it was standing.
+ */
+export const captureSystem = (body: {
+  system_id: string;
+  because?: string;
+  name?: string;
+  summary?: string;
+  author?: string;
+  site?: string[];
+}) => libraryPost<LibraryDetail>("/capture", body, "capture system");
+
+export const seedLibrary = () => libraryPost<{ added: string[] }>("/seed", {}, "seed library");
+
+export async function deleteLibraryEntry(entryId: string) {
+  const res = await fetch(`/api/library/${encodeURIComponent(entryId)}`, { method: "DELETE" });
+  return jsonOrThrow(res, "delete entry");
+}
+
+
+// ---------------------------------------------------------------------------
+// The building — /api/space/* (Component 20)
+// ---------------------------------------------------------------------------
+//
+// Every call below except the upload is pure compute: the browser holds the
+// plan and posts it back. That is why there is no `fetchPlan(id)` here and no
+// plan id to remember — a floor plan is a document this app owns, not a session
+// on the server, so it survives a restart of the twin core and can be saved to
+// a file or carried in a library entry unchanged.
+
+export const fetchSpaceOptions = async (): Promise<SpaceOptions> =>
+  jsonOrThrow(await fetch("/api/space/options"), "space options");
+
+/**
+ * Import a building file. Sends multipart form data; the browser sets the
+ * boundary, so no Content-Type here.
+ *
+ * The DXF options exist because a drawing whose layers follow an unusual
+ * convention is otherwise unimportable, and telling the importer the convention
+ * is the honest fix rather than guessing harder.
+ */
+export async function importBuilding(
+  file: File,
+  opts: { format?: string; wallLayers?: string; roomLayers?: string; scale?: number } = {},
+): Promise<{ plan: FloorPlan; summary: PlanSummary }> {
+  const form = new FormData();
+  form.append("file", file);
+  if (opts.format) form.append("format", opts.format);
+  if (opts.wallLayers) form.append("wall_layers", opts.wallLayers);
+  if (opts.roomLayers) form.append("room_layers", opts.roomLayers);
+  if (opts.scale) form.append("scale", String(opts.scale));
+  const res = await fetch("/api/space/import", { method: "POST", body: form });
+  return jsonOrThrow(res, "import building");
+}
+
+async function spacePost<T>(path: string, body: unknown, what: string): Promise<T> {
+  const res = await fetch(`/api/space${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return jsonOrThrow(res, what);
+}
+
+/** Build a plan from a server-side source and get the document back. */
+export const fetchPlan = async (
+  space: { type: string; params?: Record<string, unknown> },
+): Promise<FloorPlan> =>
+  (await spacePost<{ plan: FloorPlan; summary: PlanSummary }>("/plan", { space }, "build plan"))
+    .plan;
+
+/**
+ * A generated example building, so the view has something to show before anybody
+ * has a model.
+ *
+ * It comes back with a fidelity record that reads "nothing was assumed" — the
+ * control case, and what gives the warning any meaning on a real model.
+ */
+export const fetchExampleBuilding = (rooms = 4, levels = 1) =>
+  fetchPlan({ type: "rect", params: { rooms, levels } });
+
+export const planSummary = (plan: FloorPlan) =>
+  spacePost<PlanSummary>("/summary", { plan }, "plan summary");
+
+export const planLighting = (
+  plan: FloorPlan,
+  opts: { levelId?: string; recommend?: boolean; family?: string } = {},
+) =>
+  spacePost<SpaceLightingResponse>(
+    "/lighting",
+    { plan, level_id: opts.levelId, recommend: opts.recommend, family: opts.family },
+    "lighting for the building",
+  );
+
+/**
+ * Solve an illuminance field over one room's REAL outline.
+ *
+ * Distinct from `solveLayout` (/api/lights/layout), which lights a rectangle.
+ * In an L-shaped room the two disagree substantially and this one is right:
+ * grid points outside the room come back as `null`, because a point in the
+ * notch is not dark floor — it is not floor. Never render a null as zero lux.
+ */
+export const planRoomLayout = (
+  plan: FloorPlan,
+  spaceId: string,
+  luminaires: { id?: string; x_m: number; y_m: number; height_m?: number; lamp?: unknown }[],
+  opts: { gridN?: number; targetLux?: number; weather?: WeatherInput } = {},
+) =>
+  spacePost<{
+    space_id: string;
+    name: string;
+    rectangular: boolean;
+    inferred: string[];
+    layout: SpaceLayoutResult;
+  }>(
+    "/layout",
+    {
+      plan,
+      space_id: spaceId,
+      luminaires,
+      grid_n: opts.gridN,
+      target_lux: opts.targetLux,
+      weather: opts.weather,
+    },
+    "light this room",
+  );
+
+export const planRoute = (
+  plan: FloorPlan,
+  start: [number, number],
+  end: [number, number],
+  opts: {
+    startLevel?: string;
+    endLevel?: string;
+    wireType?: string;
+    currentA?: number;
+    systemVoltageV?: number;
+    weather?: WeatherInput;
+  } = {},
+) =>
+  spacePost<SpaceRouteResponse>(
+    "/route",
+    {
+      plan,
+      start,
+      end,
+      start_level: opts.startLevel,
+      end_level: opts.endLevel,
+      wire_type: opts.wireType,
+      current_a: opts.currentA,
+      system_voltage_v: opts.systemVoltageV,
+      weather: opts.weather,
+    },
+    "route a cable",
+  );
+
+export const planAmbient = (plan: FloorPlan, spaceId: string, weather?: WeatherInput) =>
+  spacePost<{ plan_id: string; space: SpaceContext }>(
+    "/ambient",
+    { plan, space_id: spaceId, weather },
+    "ambient in this room",
+  );
+
+/** Which room a point falls in. `space: null` means outdoors — a real answer. */
+export const planSpaceAt = (plan: FloorPlan, x: number, y: number, levelId?: string) =>
+  spacePost<{ plan_id: string; space: PlanSpace | null }>(
+    "/at",
+    { plan, x_m: x, y_m: y, level_id: levelId },
+    "which room is this",
+  );
+
+/**
+ * The weather source the model's own coordinates imply.
+ *
+ * `located: false` is not a failure — it means the file carries no coordinates,
+ * and the caller should keep whatever weather it had rather than be handed
+ * 0, 0 in the Gulf of Guinea.
+ */
+export const planWeather = (plan: FloorPlan) =>
+  spacePost<{
+    plan_id: string;
+    located: boolean;
+    weather: { type: string; params: Record<string, unknown> } | null;
+    north_deg?: number;
+  }>("/weather", { plan }, "weather for this building");
+

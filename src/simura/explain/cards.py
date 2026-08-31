@@ -1563,6 +1563,101 @@ TWIN_CARDS: tuple[ModelCard, ...] = (
         },
         see_also=("battery.thermal", "wires.thermal"),
     ),
+    ModelCard(
+        id="twin.space",
+        component="twin",
+        title="The building a system stands in",
+        one_line="An imported floor plan, and what it says the room does to the "
+        "equipment in it.",
+        what=(
+            "A BIM model — IFC, gbXML or a DXF drawing — is reduced to a 2D floor "
+            "plan: rooms with real outlines, ceiling heights, what each room is "
+            "for, where the walls run, and where on Earth the building stands. A "
+            "system can then name the room it is in, and the room answers two "
+            "questions the spec used to have to guess: what ambient this "
+            "equipment sits at, and whether the weather reaches it at all."
+        ),
+        why=(
+            "Three numbers that were previously typed in from memory become "
+            "computed: the ambient a rack is in, the length of the cable between "
+            "two pieces of equipment, and the size and purpose of every room a "
+            "lighting design has to cover. And a georeferenced model already "
+            "knows the latitude and longitude the weather source needs, so "
+            "importing a building configures the sky over it with nothing typed."
+        ),
+        source="simura.space",
+        assumptions=(
+            "A room is conditioned or it is not; there is no partial "
+            "conditioning, and an indoor room excludes sun and wind entirely.",
+            "A room that does not state its conditioning is treated as outdoor, "
+            "so the weather applies unshielded rather than being hidden behind a "
+            "guess.",
+            "Rooms that are not rectangular are handed to the lumen method as a "
+            "best-fit rectangle, and the result says so.",
+        ),
+        limits=(
+            "It reads a subset of IFC — extruded solids, not B-reps or "
+            "tessellated geometry — and names by type whatever it skipped.",
+            "Wall thickness, ceiling height and room purpose are frequently "
+            "absent from a model and are then inferred; every inferred value is "
+            "recorded with the basis it came from, and none of them is a "
+            "measurement.",
+            "It is a 2D layout. There are no ceilings voids, no risers other "
+            "than where storeys overlap, and no structure.",
+            "Nothing here validates that the model matches the building as "
+            "built. It is as right as the file is.",
+        ),
+        reads_like={
+            "newcomer": "Which room this is in, and whether it is warm in there.",
+            "operations": "Why the same rack runs hotter in the yard than in the "
+            "plant room.",
+        },
+        see_also=("twin.weather", "twin.routing", "lights.lumen_method"),
+    ),
+    ModelCard(
+        id="twin.routing",
+        component="twin",
+        title="Cable length from the building",
+        one_line="How far the cable actually runs, traced through the rooms it "
+        "passes through.",
+        what=(
+            "A run is the drop from the equipment up to the tray, the shortest "
+            "path through the building's own doorways to the other end, the drop "
+            "back down, and an allowance for slack. The path is found through a "
+            "graph of rooms and the openings that join them, so a cable goes "
+            "through doors rather than through walls."
+        ),
+        why=(
+            "Voltage drop, ohmic loss and conductor heating all scale with "
+            "length, so the whole wiring answer rests on a number that was "
+            "previously a guess. Computing it from the building makes it "
+            "checkable — and the run reports its legs, so a person can see where "
+            "the metres went."
+        ),
+        source="simura.space.routing",
+        assumptions=(
+            "Cable runs at tray height and drops vertically at each end.",
+            "A run crosses a room in a straight line between openings, which is "
+            "what a tray does; it does not cut diagonally through walls.",
+            "Slack is a stated fraction of the geometric length, not a hidden "
+            "one.",
+        ),
+        limits=(
+            "It is a room-to-room path, not a route around furniture, "
+            "structure or other services.",
+            "Risers exist only where two storeys' rooms overlap in plan; a plan "
+            "with no doors in it cannot be routed at all, and says so rather "
+            "than returning a confident straight line.",
+            "The ampacity of the run is set by the hottest room it passes "
+            "through, which is correct and is not the same as its average.",
+        ),
+        reads_like={
+            "electrician": "The run length, and which rooms it goes through.",
+            "newcomer": "Why the cable is longer than the distance between the "
+            "two ends.",
+        },
+        see_also=("twin.space", "wires.resistance", "wires.drop"),
+    ),
 )
 
 
@@ -1613,6 +1708,7 @@ _STRUCTURAL_FIELDS = {
     "profile",   # documented by battery.profile as a whole
     "faults",    # documented by battery.faults as a whole
     "weather",   # documented by twin.weather as a whole
+    "space",     # documented by twin.space as a whole
 }
 
 

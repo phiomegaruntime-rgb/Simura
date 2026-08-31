@@ -9,6 +9,8 @@ offline preview, the publisher's ``--spec`` mode, and any future caller build th
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from ..sim import (
     CellParams,
     ChargeDischargeCycle,
@@ -30,7 +32,7 @@ from ..sim import (
     sinusoidal,
 )
 from ..weather import SyntheticProvider, build_provider
-from .spec import FaultSpec, ProfileSpec, SystemSpec, WeatherSpec
+from .spec import FaultSpec, ProfileSpec, SpaceSpec, SystemSpec, WeatherSpec
 
 # Coupling-coefficient keys a WeatherSpec may override (all optional).
 COUPLING_KEYS = (
@@ -169,6 +171,33 @@ def build_coupling(spec: SystemSpec) -> EnvironmentCoupling:
     return EnvironmentCoupling(**overrides)
 
 
+def build_space(spec: SystemSpec):
+    """Resolve the room the system stands in, or ``None``.
+
+    Delegates to :mod:`simura.space` exactly as :func:`build_weather` delegates
+    to :mod:`simura.weather`, so a building stays a declarative part of the spec
+    and the physics core never imports an importer. Returns a
+    :class:`~simura.space.couple.SpaceContext` -- the room, its ambient, and the
+    *reason* for that ambient.
+
+    Anything that goes wrong reading the model returns ``None`` rather than
+    raising. A floor plan is context, not a dependency: a system whose building
+    file has moved should still run, minus what the building was telling it.
+    """
+    s = getattr(spec, "space", None)
+    if s is None or s.type in (None, "", "none") or not s.space_id:
+        return None
+    try:
+        from ..space import ambient_for, build_provider as build_plan_provider
+
+        provider = build_plan_provider({"type": s.type, **dict(s.params or {})})
+        if provider is None:
+            return None
+        return ambient_for(provider.plan(), s.space_id)
+    except Exception:
+        return None
+
+
 def build_simulator(
     spec: SystemSpec,
     *,
@@ -184,12 +213,26 @@ def build_simulator(
     ``weather_epoch0`` pins the wall-clock instant sim-time t=0 maps to (used by
     the offline preview for reproducibility); ``None`` means "now" at run time.
     """
+    pack_config = build_pack_config(spec)
+    weather = build_weather(spec, offline=offline_weather)
+
+    # A building, if the spec names one. Standing indoors is not a modifier on
+    # the weather -- it is the statement that the weather does not reach this
+    # pack: no sun on the cabinet, no wind over it, and an ambient held at the
+    # room's setpoint rather than the outside air. So the weather source is
+    # dropped rather than damped, which is both the truthful model and the one
+    # that needs no new coefficient nobody could justify.
+    space = build_space(spec)
+    if space is not None and space.indoor:
+        pack_config = replace(pack_config, ambient_temp_c=space.ambient_c)
+        weather = None
+
     sim = Simulator(
-        pack_config=build_pack_config(spec),
+        pack_config=pack_config,
         sim_config=build_sim_config(spec),
         profile=build_profile(spec.profile),
         faults=build_faults(spec),
-        weather=build_weather(spec, offline=offline_weather),
+        weather=weather,
         coupling=build_coupling(spec),
         weather_epoch0=weather_epoch0,
     )

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..space import PLAN_PARAMS, PLAN_TYPES
 from ..weather import WEATHER_PARAMS, WEATHER_TYPES
 from .build import FAULT_TYPES, PROFILE_TYPES
 from .spec import SystemSpec
@@ -50,6 +51,8 @@ def builder_options() -> dict[str, Any]:
         "sensor_signals": ["voltage", "temp"],
         "weather_types": list(WEATHER_TYPES),
         "weather_params": WEATHER_PARAMS,
+        "space_types": list(PLAN_TYPES),
+        "space_params": PLAN_PARAMS,
         "default_spec": SystemSpec(
             profile=_default_profile(),
         ).to_dict(),

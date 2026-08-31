@@ -8,15 +8,39 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { createSystem, fetchBuilderOptions, previewSpec } from "../api/client";
+import {
+  createSystem,
+  diffSpecs,
+  fetchBuilderOptions,
+  forkEntry,
+  previewSpec,
+  reviseEntry,
+  saveToLibrary,
+} from "../api/client";
 import type { PreviewError } from "../api/client";
-import type { BuilderOptions, FaultSpec, PreviewResult, SystemSpec } from "../api/types";
+import type {
+  BuilderOptions,
+  FaultSpec,
+  LibraryChange,
+  LibraryEntry,
+  PreviewResult,
+  SystemSpec,
+} from "../api/types";
 import StatTile from "./StatTile";
 
 // Build view: describe your own battery system, preview it offline, then either
 // start it live in the fleet (twin-core-run) or export the spec + copy the
 // one-line publisher command.
-export default function BuildView({ onStarted }: { onStarted?: () => void }) {
+export default function BuildView({
+  onStarted,
+  origin,
+  onSaved,
+}: {
+  onStarted?: () => void;
+  /** A library entry this build started from, if it did. */
+  origin?: LibraryEntry | null;
+  onSaved?: (entryId: string) => void;
+}) {
   const [options, setOptions] = useState<BuilderOptions | null>(null);
   const [spec, setSpec] = useState<SystemSpec | null>(null);
   const [result, setResult] = useState<PreviewResult | null>(null);
@@ -28,10 +52,12 @@ export default function BuildView({ onStarted }: { onStarted?: () => void }) {
     fetchBuilderOptions()
       .then((o) => {
         setOptions(o);
-        setSpec(o.default_spec);
+        setSpec(origin ? (JSON.parse(JSON.stringify(origin.spec)) as SystemSpec) : o.default_spec);
       })
       .catch((e) => setLoadError(String(e)));
-  }, []);
+    // Re-seeding on a new origin is the point: opening a library entry in the
+    // builder must replace the form, not merge into whatever was there.
+  }, [origin]);
 
   if (loadError)
     return <div className="text-sm text-critical">Couldn't load builder options: {loadError}</div>;
@@ -172,6 +198,8 @@ export default function BuildView({ onStarted }: { onStarted?: () => void }) {
           </ul>
         </div>
       )}
+
+      <LibraryPanel spec={spec} origin={origin ?? null} onSaved={onSaved} />
 
       {result && <PreviewPanel result={result} goLiveCmd={goLiveCmd} />}
     </div>
@@ -473,6 +501,151 @@ function Spark({
           </LineChart>
         </ResponsiveContainer>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Saving what you just built, and -- the part that matters -- why.
+ *
+ * When the builder was opened from a library entry, this panel shows the diff
+ * *computed by the server* between that entry and the form as it stands, and
+ * asks for the one thing the specs cannot supply: the reason. That reason is
+ * then filed against exactly the fields the diff found, which is what lets the
+ * library report, later, a change nobody explained.
+ *
+ * The two save buttons are the same distinction the record makes: a **new
+ * version** continues one design's story, a **fork** starts a second one. That
+ * is a judgement about what the system now *is*, so it is a person's call and
+ * not a threshold on the size of the diff.
+ */
+function LibraryPanel({
+  spec,
+  origin,
+  onSaved,
+}: {
+  spec: SystemSpec;
+  origin: LibraryEntry | null;
+  onSaved?: (entryId: string) => void;
+}) {
+  const [changes, setChanges] = useState<LibraryChange[]>([]);
+  const [because, setBecause] = useState("");
+  const [forkName, setForkName] = useState("");
+  const [saved, setSaved] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  // Recompute the diff as the form changes. Debounced, because this is a
+  // paragraph somebody is reading while typing into the field below it.
+  useEffect(() => {
+    if (!origin) return;
+    const id = setTimeout(() => {
+      diffSpecs(origin.spec, spec)
+        .then((r) => setChanges(r.changes))
+        .catch(() => setChanges([]));
+    }, 400);
+    return () => clearTimeout(id);
+  }, [origin, spec]);
+
+  const run = (p: Promise<{ entry: LibraryEntry }>) => {
+    setBusy(true);
+    setError(null);
+    p.then((d) => {
+      setSaved(d.entry.name);
+      setBecause("");
+      setForkName("");
+      onSaved?.(d.entry.entry_id);
+    })
+      .catch((e: Error) => setError(e.message))
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <div className="rounded-lg bg-surface border border-hairline px-5 py-4 flex flex-col gap-3">
+      <div className="flex items-baseline gap-3">
+        <h3 className="text-sm font-semibold text-ink">Save to the library</h3>
+        <span className="text-xs text-muted">
+          {origin
+            ? `Started from ${origin.name}`
+            : "So the next project starts from this one instead of from nothing"}
+        </span>
+      </div>
+
+      {origin ? (
+        <>
+          <div className="rounded-md border border-hairline bg-surface-2 px-4 py-3">
+            <div className="text-xs uppercase tracking-wide text-muted mb-2">What you changed</div>
+            {changes.length === 0 ? (
+              <p className="text-sm text-ink-secondary">
+                Nothing yet &mdash; this is still {origin.name}.
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-1">
+                {changes.map((c) => (
+                  <li key={c.path} className="text-sm text-ink">
+                    {c.text}
+                    {c.why && <span className="text-xs text-muted ml-2">{c.why}</span>}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <label className="text-xs uppercase tracking-wide text-muted">Why?</label>
+          <textarea
+            value={because}
+            onChange={(e) => setBecause(e.target.value)}
+            rows={2}
+            placeholder="Site B measured 8 C above the weather station, and the fan was cut from the budget..."
+            className="w-full rounded-md bg-surface-2 border border-hairline px-3 py-2 text-sm text-ink placeholder:text-muted"
+          />
+
+          <div className="flex flex-wrap items-end gap-3">
+            <button
+              type="button"
+              disabled={busy || !because.trim() || changes.length === 0}
+              onClick={() => run(reviseEntry(origin.entry_id, { spec, because }))}
+              className="rounded-md bg-series px-3 py-1.5 text-sm font-medium text-plane disabled:opacity-50"
+              title="The next version of this same design"
+            >
+              Save as v{origin.version + 1}
+            </button>
+            <TextField label="or fork it as" value={forkName} onChange={setForkName} />
+            <button
+              type="button"
+              disabled={busy || !because.trim() || !forkName.trim()}
+              onClick={() => run(forkEntry(origin.entry_id, { name: forkName, because, spec }))}
+              className="rounded-md border border-series px-3 py-1.5 text-sm font-medium text-series disabled:opacity-50"
+              title="A different design that started from this one"
+            >
+              Save as a fork
+            </button>
+          </div>
+          <p className="text-xs text-muted">
+            A new version continues this design&rsquo;s story; a fork starts a second one. Either
+            way the reason is filed against the fields above, so nobody has to remember which
+            change it referred to.
+          </p>
+        </>
+      ) : (
+        <div className="flex flex-wrap items-end gap-3">
+          <p className="text-sm text-ink-secondary w-full">
+            Saved with its spec and its provenance. Add the reasoning, and what you learn from
+            running it, in the Library.
+          </p>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => run(saveToLibrary({ spec, name: spec.name, summary: "" }))}
+            className="rounded-md bg-series px-3 py-1.5 text-sm font-medium text-plane disabled:opacity-50"
+          >
+            Save this system
+          </button>
+        </div>
+      )}
+
+      {saved && <p className="text-sm text-good">Saved {saved} to the library.</p>}
+      {error && <p className="text-sm text-critical">{error}</p>}
     </div>
   );
 }

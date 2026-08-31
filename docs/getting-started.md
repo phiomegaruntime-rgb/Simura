@@ -21,6 +21,18 @@ It prints a timeline and a final assessment that *names the fault* while the pac
 is still well below its temperature limit. More demos in the
 [examples README](https://github.com/simura/simura/tree/main/examples).
 
+## Keeping what you learn
+
+The [system library](library.md) is a standalone package too, over a single JSON
+file, so a project's systems and the reasoning behind them survive without any
+services running:
+
+```bash
+python -m simura.library --seed --list
+python -m simura.library --trace bundled.rack-lfp-16s4p-hot
+python examples/inherit_a_system.py
+```
+
 ## The full twin
 
 Bring up the broker, TimescaleDB, twin core, analytics, a couple of simulated

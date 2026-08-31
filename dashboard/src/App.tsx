@@ -6,6 +6,7 @@ import type {
   ExplainLevel,
   ExplainResponse,
   FleetResponse,
+  LibraryEntry,
   SystemInfo,
 } from "./api/types";
 import TopBar from "./components/TopBar";
@@ -17,7 +18,9 @@ import WiresView from "./components/WiresView";
 import WiresValidationView from "./components/WiresValidationView";
 import LightsView from "./components/LightsView";
 import LightsValidationView from "./components/LightsValidationView";
+import SpaceView from "./components/SpaceView";
 import LearnView from "./components/LearnView";
+import LibraryView from "./components/LibraryView";
 import ExplainPanel from "./components/ExplainPanel";
 import Footer from "./components/Footer";
 import HealthBanner from "./components/HealthBanner";
@@ -36,6 +39,12 @@ export default function App() {
   const [systems, setSystems] = useState<SystemInfo[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [fleet, setFleet] = useState<FleetResponse | null>(null);
+
+  // Component 17: the library entry the builder is working from, if any. It
+  // lives here rather than in BuildView because it is set by the Library view
+  // and read by the builder -- and it is what turns an edit into the next
+  // version of a design somebody else can trace, instead of a new orphan spec.
+  const [builderOrigin, setBuilderOrigin] = useState<LibraryEntry | null>(null);
 
   // The registry (with per-system config) backs the detail-view selector.
   useEffect(() => {
@@ -178,7 +187,12 @@ export default function App() {
         systems={systems}
         selected={selected}
         onHome={() => setView("home")}
-        onNavigate={(v) => setView(v)}
+        onNavigate={(v) => {
+          // Reaching Build from the nav means "build something new"; the
+          // library origin is only carried when the library sent you there.
+          if (v === "build") setBuilderOrigin(null);
+          setView(v);
+        }}
         connected={connected}
       />
 
@@ -203,9 +217,22 @@ export default function App() {
           </Suspense>
         ) : view === "build" ? (
           <BuildView
+            origin={builderOrigin}
             onStarted={() => {
               refreshFleet();
               setView("fleet");
+            }}
+            onSaved={() => setView("library")}
+          />
+        ) : view === "library" ? (
+          <LibraryView
+            onOpenInBuilder={(entry) => {
+              setBuilderOrigin(entry);
+              setView("build");
+            }}
+            onOpenSystem={(id) => {
+              refreshFleet();
+              openSystem(id);
             }}
           />
         ) : view === "wires" ? (
@@ -216,6 +243,8 @@ export default function App() {
           <LightsView />
         ) : view === "lightsvalidation" ? (
           <LightsValidationView />
+        ) : view === "space" ? (
+          <SpaceView />
         ) : view === "learn" ? (
           <LearnView />
         ) : view === "validation" ? (
@@ -225,7 +254,10 @@ export default function App() {
             fleet={fleet}
             onSelect={openSystem}
             onRefresh={refreshFleet}
-            onBuild={() => setView("build")}
+            onBuild={() => {
+              setBuilderOrigin(null);
+              setView("build");
+            }}
           />
         ) : !tel ? (
           <div className="flex-1 flex items-center justify-center text-muted">

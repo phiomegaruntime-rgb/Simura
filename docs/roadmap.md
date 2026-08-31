@@ -20,6 +20,12 @@ that anybody can simulate*.
   collaboration, and reuse. **Components 15–19** are Phase 2, laid out at the end of this
   document — all of them built to run locally, with the hosted half of the original sketch
   parked in **Deferred — hosting & deployment**.
+- **Phase 2.1 — the world outside the model (in parallel).** A second track, running
+  alongside Phase 2 rather than after it, on a question neither phase had asked: every
+  simulation Simura runs *stands somewhere*, and it did not know where. Phase 2.1 lets a
+  system read its surroundings from the files that already describe them, in the way
+  Component 11 let it read the weather. **Component 20** is Phase 2.1, and it is
+  independent of Components 15–19 in both directions: neither blocks the other.
 
 ## Component 1 — Physics simulator ✅ (v0.1)
 
@@ -757,22 +763,144 @@ Full suite **413 pass**. The dashboard type-checks and builds.
 - Counterfactuals — "what would this be at AWG 10" is a re-run the panel could offer
   rather than a number the reader has to go and produce.
 
-## Component 17 — Memory that survives the project 🚧 (planned)
+## Component 17 — Memory that survives the project ✅ (v0.18)
 
 **Goal.** Cure the origin wound directly. The pain that started Simura was that every
-new project repeated from zero. Phase 1 can *export a spec JSON*, but there is no shared,
-living record of systems, decisions, and know-how that a next project inherits.
+new project repeated from zero. Phase 1 could *export a spec JSON*, which solves the
+smallest part of it — the numbers travel — and loses the part that actually cost somebody
+a month: why those are the numbers, what was tried and rejected, and which of the three
+racks in the folder was the one that was right.
 
-- [ ] **A shared system library** — saved systems with provenance, notes, and the reason
-  a choice was made, not just the numbers. A CRM's real value was never its schema; it was
-  the *record of context* that persists.
-- [ ] **Versioning and lineage** — a system is forked, tuned, and traced back, so project
-  N+1 starts from project N instead of a blank builder.
-- [ ] **Reusable templates** — promote a validated system into a starting point others
-  can build on, turning one engineer's work into everyone's head start.
+### The design decision everything follows from
 
-The library is backed by the TimescaleDB the twin core already runs; it needs no service
-Simura does not already start.
+**What changed is computed; only why it changed is written down.** No entry in the
+library stores a human-typed account of how it differs from its parent. That account is
+*derived* from the two specs on every read, labelled in the vocabulary Component 16
+already owns, and the reason a person types is bound automatically to exactly the fields
+that moved. A changelog somebody maintains by hand is wrong within a month and nobody
+finds out; a diff cannot be. It is Component 16's commitment applied to memory: an
+attributed record rather than an asserted one.
+
+The consequence is the part worth having. Because the reason is bound to the spec keys it
+justifies, the library can answer a question no folder of spec files can — **which changes
+has nobody explained?** It cannot make anyone explain a change, but it can refuse to
+pretend the explanation is there, which tells the next person which question to go and ask.
+
+### What was built
+
+- [x] **`simura.library`** — a standalone package, no new dependencies. `record` (the
+  entry, and the only four ways to make one), `diff` (what changed, and the join back to
+  the reasons), `lineage` (walked from `parent_id`, never stored), `store` (an in-memory
+  reference implementation and a one-JSON-file one) and `templates` (the starter set).
+- [x] **A shared system library** — saved systems with provenance, notes and, above all,
+  **decisions**: why a number is the number it is, *with the options considered and
+  rejected* — the row absent from every spec format there is, and the first thing the next
+  person re-derives from scratch. Entries are immutable, and their ids are content hashes,
+  so saving the same thing twice is one entry and an entry keeps its identity across an
+  export and an import.
+- [x] **Versioning and lineage** — `revise` (the next version of one design) and `fork`
+  (a second design that started from the first) are separate because the distinction is
+  the *reader's*: a revision chain is a story about one design. Both **refuse to run
+  without a reason**. `trace` walks the chain and pairs every computed step with the
+  reason given for it; `inherited_context` hands a fork every note and decision from
+  above, which is what "starting from project N" actually means.
+- [x] **Reusable templates** — `promote` makes a system a starting point and, unlike a
+  fork, copies the notes and decisions forward: a starting point stripped of the reasons
+  behind it is just a spec file again.
+- [x] **A starter set, held to the same rules.** Five bundled entries — two designs, a
+  fork of each, one of those promoted — so day one is not a blank builder. They are built
+  through the same constructors a user goes through, so the suite asserts every bundled
+  spec validates and runs, each fork's diff matches what its reason claims, and no bundled
+  change is unexplained. A starter set that cheated past the rules would teach people to.
+- [x] **The loop back from a running twin.** `instantiate` records which entry a live
+  system came from, and `capture` files a system that has since been tuned as that entry's
+  *next version* rather than as another orphan spec. That loop is what makes the library
+  accumulate rather than collect snapshots; it needed one new column on `systems`.
+- [x] **A deletion that does not cascade.** Deleting a design leaves its forks standing,
+  with their lineage honestly stopping at the id that is gone — losing somebody else's
+  system because the design it came from was tidied away is the exact failure this
+  component exists to prevent.
+- [x] **API** — `GET/POST /api/library`, `/{id}`, `/{id}/trace`, `/tree`,
+  `/{id}/{fork,revise,promote,notes,decisions,validated,instantiate}`, `/capture`,
+  `/seed`, and `POST /api/library/diff`, which is pure compute so a form can show what an
+  edit would change before anything is saved.
+- [x] **Dashboard** — a **Library** section listing every saved system with its computed
+  one-line diff; a detail panel showing what changed with the reason under it, grouped
+  because one reason usually covers several fields, and an unexplained change rendered
+  loudly with a form that binds a new reason to the fields you tick. "Open in builder"
+  loads an entry into the Component-9 builder, which then shows the live diff against it
+  as you type and offers two saves — *as v n+1* or *as a fork* — both requiring the reason
+  and neither asking you to describe the change.
+- [x] **Works with nothing running.** `python -m simura.library --seed --list --show
+  --trace --tree --fork --note --diff` over a single JSON file. A library you can only
+  read while a database is up is not memory that survives the project; it is memory that
+  survives the container. The twin core persists the same entries in the TimescaleDB it
+  already runs, and seeds the starter set into an **empty** library only — a library that
+  keeps handing back a starter system its owner deleted is not memory either.
+- [x] **A caller may supply a site, and nothing else.** Most of a spec is the design;
+  `weather`, `profile` and `duration_s` describe *this run of it*. `simura.library.site`
+  states that split once and both directions read it: `instantiate` accepts those three
+  and refuses anything else, and `capture` takes them back off — from the parent entry, or
+  from the builder's defaults when there is no parent — before recording anything. Without
+  the rule a caller with a place of its own either cannot use the library at all, or fills
+  every capture with "weather source none → synthetic" as a design change somebody has to
+  justify, burying the change that matters under a note about the sky.
+- [x] **A fault now reaches the registry.** Injecting or repairing one changed the
+  running simulation's spec and nothing else, so the `systems` row went on describing a
+  rack nobody had broken — which meant restarting the twin core silently repaired every
+  faulted pack, and capturing one found nothing to record. The three fault routes write
+  the live spec back. Found by building the capture loop, not by looking for it.
+- [x] **Reusable by optional modules.** The 3D sandbox (Component 13, developed
+  separately) puts every saved design in the player's hands: the inventory's first group is
+  the library, placing an entry stands *that design* up — through `instantiate`, so the
+  link back is derived by the twin core rather than asserted by the module — and the rack's
+  right-click panel gains a **Library** tab reading back the decisions, what they rejected,
+  and the notes. It writes, too: a note left in front of a rack that has just cooked goes on
+  the *design*, and a rack somebody has broken can be saved as that design's next version,
+  with the fault travelling and the weather staying behind.
+- [x] **Example** — `examples/inherit_a_system.py`: three engineers, one library file, no
+  services. Ana designs a rack, Ben inherits it for Phoenix and types one sentence, Cass
+  reads the whole argument back six months later — and the last section shows, on purpose,
+  what a change with no reason on file looks like.
+
+### Verified
+
+`test_library` (42) is built around the two halves of the claim. **Fidelity** — the diff
+reports what the specs actually differ in and nothing else: a partial spec differs from a
+complete one in nothing (an omitted field *is* its default), a field arrives labelled from
+its model card with its unit and the reason it matters, a fault that appears reads as one
+change rather than the four columns that store it while a fault that is *tuned* reads as
+the fields that moved, and switching a load profile borrows the reasoning of the type
+chosen. **Honesty** — a fork made through the constructors starts fully explained, and an
+entry that arrived some other way is shown incomplete rather than assumed fine; a reason
+covers only what it was bound to, so tuning a field afterwards is reported. Plus the rules
+themselves: a fork or revision with no reason is refused, a spec that would not run is
+refused, a deleted parent ends a chain instead of breaking the fork, and the bundled set
+validates, runs, and comes out complete.
+
+`test_library_api` (27) covers the wiring: 4xx rather than 5xx on a missing reason, an
+unknown entry or an unrunnable spec; plain-JSON everywhere; and the loop that matters —
+running a saved system records the entry it came from, capturing it after it drifts files
+a *revision* of that entry with the running system re-pointed at the new version, and
+capturing one that has not changed adds nothing at all. The site split is tested from both
+ends: a caller cannot launder a design change through it, a rack captured back out of a
+sandbox reports the fault somebody injected and *not* the weather it was standing in, and
+a sandbox system the library has never seen starts a record with the builder's defaults
+rather than that sandbox's sky. One test walks the whole sandbox loop — place a saved
+design, break it where you are standing, save what you found as its next version — and it
+earns its place by having caught the stale-registry bug above rather than a hypothetical.
+
+Full suite **482 pass**. The dashboard type-checks and builds.
+
+### Backlog
+- Comparing two arbitrary entries side by side; today the diff is always against a parent
+  or against a spec you already hold.
+- Attaching a validation run or a fleet outcome to an entry, so `validated` can point at
+  *what* it was checked against rather than only recording that somebody says it was.
+- Merging a change back up a lineage — today a fork diverges and stays diverged, which is
+  honest but leaves the "we all fixed the same thing separately" case to a human.
+- Import/export between two people's libraries is a JSON file and a content-addressed id;
+  it works, but there is no conflict story beyond "the same content is the same entry".
 
 ## Component 18 — Multiplayer 🚧 (planned)
 
@@ -805,6 +933,122 @@ component you write*.
   plain manifest, so the LFP curves, the sodium-arc spectra, and the next domain family
   come from the people who know them best. Git-and-a-file, not a service.
 - ⏸️ **A hosted marketplace/registry** — deferred with the hosting work.
+
+---
+
+# Phase 2.1 — the world outside the model (in parallel)
+
+Phase 2 asks whether somebody who did not build a model can understand it, reuse it, and
+work on it with others. Phase 2.1 asks a question that sits beside that one rather than
+after it:
+
+> **Phase 1 asked "is the physics faithful?" Phase 2 asks "can someone else understand
+> it?" Phase 2.1 asks "does the model know where it is standing?"**
+
+Until now it did not. A rack had an ambient temperature somebody typed, a cable had a
+length somebody estimated, a lighting design had a room somebody measured off a drawing,
+and a weather source had coordinates somebody looked up — four numbers, four chances to be
+wrong, and no way for anyone downstream to tell which had been measured and which had been
+remembered.
+
+The precedent is Component 11. Weather was not a new physics component; it was the
+recognition that the environment a system sits in is *already described somewhere*, and
+that reading it beats asking somebody to type it. A building is described somewhere too,
+in far more detail, in a file the project already has — and it answers all four questions
+at once.
+
+This runs as its own track because it is orthogonal to the mission layer. Nothing in
+Components 15–19 needs it, and it needs nothing from them.
+
+## Component 20 — The building ✅ (v0.19)
+
+**Goal.** Import somebody else's BIM model as a 2D layout that every other component can
+simulate against, and that the 3D sandbox can be walked through — coupled the way weather
+is coupled, through the terms the models already had.
+
+`simura.space` is a reusable, domain-agnostic package: a building file in, a **floor plan**
+out. No new dependencies — IFC, gbXML and DXF are parsed in pure Python, for the same
+reason every texture in the sandbox is drawn in code. See [the building](space.md).
+
+**The commitment it is built on: an import declares what it could not read.** Every
+importer fills in — it picks 2.7 m, it assumes millimetres, it skips the entity and moves
+on — and that is correct. Doing it *silently* is not, because the guess becomes
+indistinguishable from a measurement one function call later, and a lux figure somebody
+designs against then rests on it. So every value the importer supplied rather than read is
+recorded with the basis it came from, and the couplings carry that through: a lighting
+design for a room whose ceiling height was assumed says so, next to the number. It is
+Component 16's commitment (attributed, not asserted) and Component 17's (computed, not
+claimed) applied to the one place a twin meets somebody else's file.
+
+- [x] **The canonical floor plan** — one small JSON document: georeference, levels, spaces
+  with real polygons, walls with axis and thickness, openings, and a fidelity record.
+  Metres always; the source unit recorded, because a factor-of-1000 error is the
+  characteristic BIM failure. Content-hashed id, so a re-imported model is a *new* plan
+  rather than a silent replacement of the old one.
+- [x] **Importers, all pure Python** — IFC STEP (the 2D-relevant subset: spaces, walls,
+  storeys, site, units, and the composed placement chain), gbXML, ASCII DXF, plus a saved
+  plan and a generated example building. An optional `simura[bim]` extra runs the same job
+  through `ifcopenshell` for models whose geometry the subset declines to guess about —
+  optional exactly as SciPy is for `.mat` datasets.
+- [x] **Occupancy classification** — a room is what it is *for*, onto the vocabulary
+  `simura.lights` already speaks, from the most structured source available and with its
+  basis recorded. It refuses rather than guesses: defaulting is how a plant room ends up
+  designed to 500 lux.
+- [x] **Weather coupling** — a georeferenced model configures its own `open_meteo` source,
+  and carries true north, which decides which facade takes morning sun. Importing a
+  building configures the sky over it with nothing typed in.
+- [x] **Lights coupling** — every room becomes a `recommend_lamp` call with its real
+  extents and its own task target, and a whole-building installed-power rollup. Plus a
+  genuine physics improvement: `Layout(outline=...)` solves the illuminance field over a
+  room's **real polygon**, masking points outside it, so an L-shaped room stops being lit
+  as its bounding box (54 lux and U0 0.66 became 68 lux and U0 0.80 on the same fittings —
+  a fifth of the "room" was never floor).
+- [x] **Wires coupling** — cable length *computed* from the building: the drop to the tray,
+  the shortest path through the rooms and the openings that join them, the drop back down,
+  and stated slack. The run reports its legs, so the total is checkable, and the rooms it
+  crossed, so it is derated for the hottest one — a conductor is rated by its worst metre.
+- [x] **Batteries coupling** — `SystemSpec.space`, the same two-field shape as `weather`,
+  because it answers the neighbouring question: weather says what the sky is doing, the
+  room says whether the sky reaches the equipment. Standing indoors *drops* the weather
+  source rather than damping it, which is the truthful model and needs no new coefficient.
+  Same rack, same 34 °C day: 22.7 °C hottest cell in a conditioned office, 39.7 °C in an
+  unconditioned plant room.
+- [x] **`space` added to the library's site allowlist** — which room a rack was put in says
+  nothing about the rack, so it must not travel as a design change. Without it, dropping a
+  saved design into an imported building would report "space: none → gbxml #412" as
+  something somebody has to justify.
+- [x] **Two model cards** (`twin.space`, `twin.routing`) — the enforced coverage check
+  means a new parameter surface fails the build until it is explained, which is how the
+  building layer arrived legible rather than as a second undocumented vocabulary.
+- [x] **`/api/space/*`, all pure compute** — the client holds the plan and posts it back,
+  as it does for `/api/wires/network`. A floor plan is an artifact somebody keeps, not a
+  session on a server. Only the import itself needs the file.
+- [x] **Dashboard: a Building section** — import a model, draw the plan, and show the
+  fidelity record *beside* it, because showing one without the other is showing half the
+  answer. Click a room for its lighting design; click two points to trace a cable.
+- [x] **The world walks the same plan** — the sandbox extrudes the identical floor-plan
+  document into walls and rooms rather than importing a mesh, so the building you walk
+  through and the building the lighting planner designed for cannot disagree.
+
+### What is deliberately not in it
+
+- **It is a 2D layout.** No ceiling voids, no structure, no services, and no risers other
+  than where two storeys' rooms overlap in plan.
+- **It does not validate the model against the building as built.** A plan is as right as
+  the file is, and nothing here can tell you whether the file is right.
+- **Routing is room-to-room through openings.** Not around furniture, structure or other
+  services.
+
+### Where it could go next
+
+- [ ] **Round-tripping** — write a lighting design or a cable schedule back out as IFC or
+  gbXML, so the result of a simulation lands in the model it came from.
+- [ ] **Re-import as a diff** — a changed model is already a *new* plan with a new hash;
+  the missing half is computing what moved between two plans, which is Component 17's
+  machinery pointed at geometry rather than at specs.
+- [ ] **Occupancy and schedules** — gbXML carries them and nothing reads them yet; they
+  are what would let a lighting design be simulated over a working day rather than at an
+  instant.
 
 ---
 

@@ -54,9 +54,11 @@ nav:
       - Validation: validation.md
       - System builder: builder.md
       - Weather: weather.md
+      - The building (BIM): space.md
       - Wires: wires.md
       - Lights: lights.md
       - Getting familiar: explain.md
+      - System library: library.md
       - Dashboard: dashboard.md
   - Project:
       - Roadmap: roadmap.md

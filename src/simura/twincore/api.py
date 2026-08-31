@@ -40,6 +40,21 @@ from ..builder import (
     preview,
     validate_spec,
 )
+from ..space import (
+    FloorPlan,
+    PLAN_PARAMS,
+    PLAN_TYPES,
+    PlanError,
+    ambient_for,
+    build_provider as build_plan_provider,
+    detect_format,
+    lighting_targets,
+    summary as plan_summary,
+    task_grid,
+    weather_spec as plan_weather_spec,
+)
+from ..space.occupancy import OCCUPANCY
+from ..space.routing import DEFAULT_SLACK_FRAC, DEFAULT_TRAY_HEIGHT_M, route as route_cable
 from ..explain import (
     coverage,
     define,
@@ -63,6 +78,26 @@ from ..explain.lights import (
 from ..explain.domains import DEFAULT_DOMAIN
 from ..explain.wires import explain_run as explain_wire_run
 from ..fleet import build_fleet
+from ..library import (
+    KINDS as LIBRARY_KINDS,
+    Decision as LibraryDecision,
+    Entry as LibraryEntry,
+    InMemoryLibrary,
+    LibraryError,
+    Note as LibraryNote,
+    bundled_entries,
+    change_coverage,
+    diff_specs,
+    explain_changes,
+    fork as fork_entry,
+    SiteError,
+    apply_site,
+    new_entry as new_library_entry,
+    promote as promote_entry,
+    restore_site,
+    revise as revise_entry,
+    summarize as summarize_changes,
+)
 from ..lights import (
     LightSpec,
     build_layout,
@@ -406,6 +441,449 @@ async def weather_sample(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     # A live provider's first call fetches over HTTP; keep that off the event loop.
     sample = await asyncio.to_thread(provider.at, time.time())
     return {"weather": sample.to_dict()}
+
+
+# ---------------------------------------------------------------------------
+# Space -- a building imported as a 2D layout (Component 20)
+# ---------------------------------------------------------------------------
+#
+# Every route here is **pure compute**, like /api/wires/* and /api/lights/*: no
+# broker, no database, nothing stored server-side. The client holds the plan and
+# posts it back, which is what makes a floor plan an artifact rather than a
+# session -- it can be saved to a file, checked into a repository, carried in a
+# library entry, or kept in the browser, and none of those need this server to
+# still be running.
+#
+# The one thing that cannot work that way is the import itself, because it needs
+# the file. So `POST /api/space/import` takes an upload and hands back the plan;
+# after that the server is out of the loop.
+
+
+def _plan_from_body(body: dict[str, Any]) -> FloorPlan:
+    """The plan a request is about: an inline document, or a spec to build one."""
+    payload = body.get("plan")
+    if isinstance(payload, dict) and ("spaces" in payload or "walls" in payload):
+        try:
+            return FloorPlan.from_dict(payload)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise HTTPException(
+                status_code=400, detail=f"not a floor plan: {exc}"
+            ) from None
+
+    spec = body.get("space") or body.get("source")
+    if isinstance(spec, dict):
+        try:
+            provider = build_plan_provider(
+                {"type": spec.get("type", "none"), **(spec.get("params") or {})}
+            )
+        except PlanError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+        if provider is None:
+            raise HTTPException(status_code=400, detail="no building in this request")
+        try:
+            return provider.plan()
+        except PlanError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+
+    raise HTTPException(
+        status_code=400,
+        detail="send a 'plan' document or a 'space' spec of {type, params}",
+    )
+
+
+@router.get("/api/space/options")
+async def space_options() -> dict[str, Any]:
+    """What kinds of building file can be imported, and what each one takes.
+
+    Serves the import form the same way ``/api/builder/options`` serves the
+    builder form: the list lives in the code that implements it, so a new format
+    is a one-file change rather than two lists that drift.
+    """
+    from ..space.providers import ifc_full_available
+
+    return {
+        "types": list(PLAN_TYPES),
+        "params": PLAN_PARAMS,
+        "occupancies": list(OCCUPANCY),
+        "ifc_full_available": ifc_full_available(),
+        "routing_defaults": {
+            "tray_height_m": DEFAULT_TRAY_HEIGHT_M,
+            "slack_frac": DEFAULT_SLACK_FRAC,
+        },
+    }
+
+
+@router.post("/api/space/import")
+async def space_import(
+    request: Request,
+    file: UploadFile = File(...),
+    format: str = Form(""),
+    wall_layers: str = Form(""),
+    room_layers: str = Form(""),
+    scale: float = Form(0.0),
+) -> dict[str, Any]:
+    """Import a building file and return the floor plan it becomes.
+
+    The format is detected from the filename and then from the contents, so a
+    mislabelled export still lands; pass ``format`` to override. The DXF options
+    are here because a drawing with an unusual layer convention is otherwise
+    unimportable, and telling the importer the convention is the honest fix.
+
+    The response carries the plan **and** its fidelity record. A caller showing
+    the plan without showing what was assumed is showing half the answer.
+    """
+    settings = request.app.state.settings
+    max_bytes = int(getattr(settings, "validation_max_upload_mb", 32) * 1024 * 1024)
+    data = await file.read(max_bytes + 1)
+    if len(data) > max_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=f"file exceeds the {max_bytes / 1024 / 1024:g} MB limit",
+        )
+    if not data:
+        raise HTTPException(status_code=400, detail="empty file")
+
+    filename = file.filename or "upload"
+    try:
+        kind = format or detect_format(filename, data)
+    except PlanError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+
+    params: dict[str, Any] = {"data": data, "name": filename, "path": filename}
+    if kind == "dxf":
+        if wall_layers:
+            params["wall_layers"] = wall_layers
+        if room_layers:
+            params["room_layers"] = room_layers
+        if scale:
+            params["scale"] = scale
+    if kind == "ifc_full":
+        # ifcopenshell reads from disk, so an upload has to land somewhere first.
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=Path(filename).suffix)
+        try:
+            tmp.write(data)
+            tmp.close()
+            params = {"path": tmp.name, "name": filename}
+            plan = await asyncio.to_thread(_build_plan, kind, params)
+        finally:
+            os.unlink(tmp.name)
+        return {"plan": plan.to_dict(), "summary": plan_summary(plan)}
+
+    # Parsing a large model is CPU-bound; keep it off the event loop.
+    plan = await asyncio.to_thread(_build_plan, kind, params)
+    return {"plan": plan.to_dict(), "summary": plan_summary(plan)}
+
+
+def _build_plan(kind: str, params: dict[str, Any]) -> FloorPlan:
+    try:
+        provider = build_plan_provider({"type": kind, **params})
+        if provider is None:
+            raise PlanError(f"nothing to import as '{kind}'")
+        return provider.plan()
+    except PlanError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    except (ValueError, TypeError, KeyError) as exc:
+        raise HTTPException(
+            status_code=400, detail=f"could not read the building: {exc}"
+        ) from None
+
+
+@router.post("/api/space/plan")
+async def space_plan(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Build a plan from a spec and return the **document**, not a rollup.
+
+    The counterpart of ``/api/space/import`` for a source that is not an upload:
+    a plan already on the server's disk, or the generated example building. The
+    client keeps what comes back and posts it to every other route, so this is
+    the only call it makes about that building.
+
+    ``/api/space/summary`` answers the same request with a rollup instead, for a
+    caller that wants the headline without carrying the geometry.
+    """
+    plan = _plan_from_body(body)
+    return {"plan": plan.to_dict(), "summary": plan_summary(plan)}
+
+
+@router.post("/api/space/summary")
+async def space_summary(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """The rollup for a plan: rooms, area, where it is, and what was assumed."""
+    return plan_summary(_plan_from_body(body))
+
+
+@router.post("/api/space/lighting")
+async def space_lighting(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Every room in the plan as a lighting-design problem, optionally solved.
+
+    With ``recommend: true`` each room is run through
+    :func:`simura.lights.planning.recommend_lamp` and the building is totalled --
+    which is the coupling that scales: one import gives a per-room design for a
+    whole building and the installed power that implies.
+
+    A room that cannot honestly be designed is still returned, with its reason,
+    so the rollup reports "38 of 41 rooms designed" rather than silently covering
+    38.
+    """
+    plan = _plan_from_body(body)
+    level_id = body.get("level_id") or None
+    targets = lighting_targets(plan, level_id=level_id)
+    out: dict[str, Any] = {
+        "plan_id": plan.id,
+        "targets": [t.to_dict() for t in targets],
+        "undesignable": sum(1 for t in targets if not t.designable),
+    }
+
+    if not body.get("recommend"):
+        return out
+
+    from ..lights.planning import recommend_lamp
+
+    family = body.get("family") or None
+    rooms: list[dict[str, Any]] = []
+    total_w = 0.0
+    total_area = 0.0
+    for target in targets:
+        result = await asyncio.to_thread(
+            recommend_lamp, family=family, **target.kwargs()
+        )
+        assessment = result.assessment
+        if assessment is not None:
+            total_w += assessment.power_w
+            total_area += target.area_m2
+        rooms.append(
+            {
+                "space_id": target.space_id,
+                "name": target.name,
+                "target": target.to_dict(),
+                "recommendation": result.to_dict(),
+            }
+        )
+
+    out["rooms"] = rooms
+    out["building"] = {
+        "power_w": round(total_w, 1),
+        "floor_area_m2": round(total_area, 1),
+        "power_density_w_per_m2": round(total_w / total_area, 2) if total_area else 0.0,
+        "designed": len(rooms),
+    }
+    return out
+
+
+@router.post("/api/space/layout")
+async def space_layout(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Solve an illuminance field over **one room's real outline**.
+
+    The difference from ``/api/lights/layout`` is the shape. That route lights a
+    rectangle; this one lights the room the building actually has, masking every
+    grid point that falls outside it. In an L-shaped room the two disagree
+    substantially, and this one is right: a point in the notch is not dark floor,
+    it is not floor.
+
+    Luminaire positions are in **plan coordinates**, the same frame the room's
+    polygon is in, so a fitting can be placed by clicking the plan.
+    """
+    plan = _plan_from_body(body)
+    space_id = str(body.get("space_id", ""))
+    space = plan.space(space_id)
+    if space is None:
+        raise HTTPException(status_code=404, detail=f"no room '{space_id}' in this plan")
+
+    from ..lights.config import build_fault as build_light_fault
+    from ..lights.lamp import LightSpec
+    from ..lights.layout import Layout
+
+    length, width, _ = space.extents()
+    workplane = float(body.get("workplane_height_m", 0.8))
+    layout = Layout(
+        length_m=length,
+        width_m=width,
+        workplane_height_m=workplane,
+        grid_n=int(body.get("grid_n", 11)),
+        outline=list(space.polygon),
+    )
+    for i, item in enumerate(body.get("luminaires") or []):
+        layout.add(
+            id=str(item.get("id") or f"L{i + 1}"),
+            x_m=float(item.get("x_m", 0.0)),
+            y_m=float(item.get("y_m", 0.0)),
+            height_m=float(item.get("height_m", space.height_m)),
+            spec=LightSpec.from_dict(item.get("lamp") or {"lamp_type": "led-15-e27"}),
+            drive=float(item.get("drive", 1.0)),
+            faults=[build_light_fault(f) for f in (item.get("faults") or [])],
+        )
+
+    weather = body.get("weather")
+    sample = None
+    if isinstance(weather, dict) and weather:
+        from ..weather import WeatherSample
+
+        sample = WeatherSample.from_dict({"timestamp": time.time(), **weather})
+
+    try:
+        result = layout.solve(
+            elapsed_s=float(body.get("elapsed_s", 0.0)),
+            target_lux=float(body.get("target_lux", 0.0)),
+            min_uniformity=float(body.get("min_uniformity", 0.0)),
+            weather=sample,
+            ceiling_reflectance=space.ceiling_reflectance,
+            wall_reflectance=space.wall_reflectance,
+            floor_reflectance=space.floor_reflectance,
+        )
+    except (ValueError, KeyError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+
+    return {
+        "space_id": space.id,
+        "name": space.name,
+        "rectangular": space.rectangular(),
+        "inferred": list(space.inferred),
+        "layout": result.to_dict(),
+    }
+
+
+@router.post("/api/space/route")
+async def space_route(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Trace a cable run through the building, and price it as a conductor.
+
+    Returns the run with its legs visible, and -- when a ``wire_type`` is given --
+    the ``simura.wires`` assessment of that run at that length, derated for the
+    hottest room it passes through. A conductor is rated by its worst metre, not
+    its average, which is the reason a route has to know which rooms it crossed.
+    """
+    plan = _plan_from_body(body)
+
+    def point(value: Any, name: str) -> tuple[float, float]:
+        if isinstance(value, dict):
+            return (float(value.get("x_m", 0.0)), float(value.get("y_m", 0.0)))
+        if isinstance(value, (list, tuple)) and len(value) >= 2:
+            return (float(value[0]), float(value[1]))
+        raise HTTPException(
+            status_code=400, detail=f"'{name}' must be [x, y] in metres"
+        )
+
+    result = route_cable(
+        plan,
+        point(body.get("start"), "start"),
+        point(body.get("end"), "end"),
+        start_level=body.get("start_level") or None,
+        end_level=body.get("end_level") or None,
+        tray_height_m=float(body.get("tray_height_m", DEFAULT_TRAY_HEIGHT_M)),
+        equipment_height_m=float(body.get("equipment_height_m", 0.0)),
+        slack_frac=float(body.get("slack_frac", DEFAULT_SLACK_FRAC)),
+    )
+
+    out: dict[str, Any] = {"plan_id": plan.id, "route": result.to_dict()}
+
+    sample = None
+    weather = body.get("weather")
+    if isinstance(weather, dict) and weather:
+        from ..weather import WeatherSample
+
+        sample = WeatherSample.from_dict({"timestamp": time.time(), **weather})
+    ambient = result.hottest_ambient(plan, sample)
+    out["hottest_ambient_c"] = ambient
+
+    wire_type = body.get("wire_type")
+    if wire_type:
+        from ..wires import WireSpec, evaluate_run
+
+        spec = WireSpec(**result.wire_kwargs(str(wire_type), ambient or 25.0))
+        try:
+            assessment = evaluate_run(
+                spec,
+                current_a=float(body.get("current_a", 0.0)),
+                system_voltage_v=float(body.get("system_voltage_v", 48.0)),
+            )
+        except (ValueError, KeyError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+        out["wire"] = assessment.to_dict()
+        out["wire_spec"] = result.wire_kwargs(str(wire_type), ambient or 25.0)
+
+    return out
+
+
+@router.post("/api/space/ambient")
+async def space_ambient(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """What the environment is in one room, and **why** it is that.
+
+    The battery coupling in one call: a conditioned room holds its setpoint and
+    excludes the sun; an unconditioned one takes the weather in full; a room the
+    model says nothing about is treated as outdoor and says so. The ``basis`` is
+    the sentence to show next to the number.
+    """
+    plan = _plan_from_body(body)
+    space_id = str(body.get("space_id", ""))
+
+    sample = None
+    weather = body.get("weather")
+    if isinstance(weather, dict) and weather:
+        from ..weather import WeatherSample
+
+        sample = WeatherSample.from_dict({"timestamp": time.time(), **weather})
+
+    context = ambient_for(
+        plan,
+        space_id,
+        sample,
+        indoor_setpoint_c=float(body.get("indoor_setpoint_c", 21.0)),
+    )
+    if context is None:
+        raise HTTPException(status_code=404, detail=f"no room '{space_id}' in this plan")
+    return {"plan_id": plan.id, "space": context.to_dict()}
+
+
+@router.post("/api/space/at")
+async def space_at_point(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Which room a point falls in -- how a placed thing learns where it stands.
+
+    The 3D world's whole use of this component: a rack is put down somewhere, and
+    this says which room that is, which is what gives it an ambient and a name
+    without anybody typing one. ``{"space": null}`` when the point is outdoors or
+    outside the model, which is a real answer and not an error.
+    """
+    plan = _plan_from_body(body)
+    x = float(body.get("x_m", 0.0))
+    y = float(body.get("y_m", 0.0))
+    space = plan.space_at((x, y), body.get("level_id") or None)
+    return {
+        "plan_id": plan.id,
+        "space": space.to_dict() if space is not None else None,
+    }
+
+
+@router.post("/api/space/weather")
+async def space_weather(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """The weather source the model's own coordinates imply.
+
+    The join the whole component was built around: a georeferenced model already
+    knows the latitude and longitude ``simura.weather`` needs, so importing a
+    building configures the sky over it with nothing typed in. ``null`` when the
+    model carries no coordinates -- a fact about the file, not a failure, and the
+    caller keeps whatever weather it had rather than being handed 0, 0.
+    """
+    plan = _plan_from_body(body)
+    spec = plan_weather_spec(plan, mode=str(body.get("mode", "forecast")))
+    if spec is None:
+        return {"plan_id": plan.id, "weather": None, "located": False}
+    kind = spec.pop("type")
+    return {
+        "plan_id": plan.id,
+        "located": True,
+        "weather": {"type": kind, "params": spec},
+        "north_deg": plan.georeference.north_deg,
+    }
+
+
+@router.post("/api/space/grid")
+async def space_grid(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """The task-area sample points inside one room, for a client-side field."""
+    plan = _plan_from_body(body)
+    points = task_grid(
+        plan,
+        str(body.get("space_id", "")),
+        spacing_m=float(body.get("spacing_m", 0.5)),
+        inset_m=body.get("inset_m"),
+    )
+    return {"space_id": body.get("space_id"), "points": [[x, y] for x, y in points]}
 
 
 @router.get("/api/wires/catalog")
@@ -1244,6 +1722,507 @@ async def explain_system(
     return out
 
 
+# ==========================================================================
+# Component 17: the system library -- memory that survives the project
+# ==========================================================================
+#
+# These routes are persistence and HTTP only. Every rule -- what a fork is, when
+# a reason is required, how a diff reads, where a lineage goes -- lives in
+# ``simura.library`` and is applied here by loading the stored rows into that
+# package's own in-memory library, calling its functions, and writing the result
+# back. The twin core does not get a second, subtly different idea of what a
+# saved system is.
+
+
+class SaveEntryRequest(BaseModel):
+    """Body for POST /api/library -- save a system into the library."""
+
+    spec: dict[str, Any]
+    name: Optional[str] = None
+    kind: str = "system"
+    summary: str = ""
+    author: str = ""
+    tags: list[str] = []
+    validated: bool = False
+    notes: list[dict[str, Any]] = []
+    decisions: list[dict[str, Any]] = []
+
+
+class ForkRequest(BaseModel):
+    """Body for POST /api/library/{id}/fork. ``because`` is required by the model."""
+
+    name: str
+    because: str
+    spec: Optional[dict[str, Any]] = None
+    author: str = ""
+    summary: str = ""
+    tags: Optional[list[str]] = None
+    rejected: list[str] = []
+
+
+class ReviseRequest(BaseModel):
+    """Body for POST /api/library/{id}/revise -- the next version of one design."""
+
+    spec: dict[str, Any]
+    because: str
+    author: str = ""
+    name: Optional[str] = None
+    summary: Optional[str] = None
+    tags: Optional[list[str]] = None
+    rejected: list[str] = []
+
+
+class PromoteRequest(BaseModel):
+    """Body for POST /api/library/{id}/promote -- make a system a starting point."""
+
+    because: str
+    name: Optional[str] = None
+    author: str = ""
+    summary: Optional[str] = None
+    tags: Optional[list[str]] = None
+
+
+class NoteRequest(BaseModel):
+    text: str
+    kind: str = "note"  # note | gotcha | result
+    author: str = ""
+
+
+class DecisionRequest(BaseModel):
+    question: str
+    because: str
+    choice: str = ""
+    params: list[str] = []
+    rejected: list[str] = []
+    author: str = ""
+
+
+class InstantiateRequest(BaseModel):
+    """Body for POST /api/library/{id}/instantiate -- run a saved system.
+
+    ``site`` is how a caller with a place of its own -- the 3D sandbox, which
+    stands a rack in the world's weather and wires it to the world's loads --
+    runs somebody else's design without pretending its weather is part of that
+    design. Only the fields in :data:`simura.library.SITE_FIELDS` are accepted;
+    anything else is a 400, because the whole point of instantiating *this entry*
+    is that what runs is the design the entry records.
+    """
+
+    system_id: Optional[str] = None
+    name: Optional[str] = None
+    speed: Optional[float] = None
+    autostart: bool = True
+    site: dict[str, Any] = {}
+
+
+class CaptureRequest(BaseModel):
+    """Body for POST /api/library/capture -- save a *running* system.
+
+    ``because`` is only required when the system was started from a library
+    entry and has since drifted from it: that capture is the next version of a
+    design somebody else may be reading, and a new version with no reason is the
+    thing this component exists to stop.
+    """
+
+    system_id: str
+    name: Optional[str] = None
+    because: str = ""
+    summary: str = ""
+    author: str = ""
+    tags: list[str] = []
+    notes: list[dict[str, Any]] = []
+    site: list[str] = []
+    """Which spec fields the caller supplied itself (see the instantiate route).
+    They are taken back off before the entry is recorded, so a system captured
+    out of a sandbox differs from its parent by what somebody *did* to it rather
+    than by where it was standing."""
+
+
+async def _library(request: Request) -> InMemoryLibrary:
+    """The stored library, as the library package's own object.
+
+    Loaded whole. Lineage is a walk over entries, so a page of them would answer
+    "how did this get here" with part of the story -- and a library is documents
+    somebody wrote, which is not a table that grows the way telemetry does.
+    """
+    return InMemoryLibrary.from_dicts(await _store(request).library_list())
+
+
+async def _persist(request: Request, entry: LibraryEntry) -> dict[str, Any]:
+    """Write a newly-built entry, and return it with its context attached."""
+    await _store(request).library_save(entry.to_dict())
+    return await _entry_detail(request, entry.entry_id)
+
+
+def _row(library: InMemoryLibrary, entry: LibraryEntry) -> dict[str, Any]:
+    """A list row: the entry, plus the two things a list has to show.
+
+    ``change_summary`` is computed from the specs on every read rather than
+    stored, which is the whole design decision in one field: a row can say how
+    it differs from its parent and be right about it a year later.
+    """
+    parent = library.get(entry.parent_id) if entry.parent_id else None
+    out = entry.to_dict()
+    out["child_count"] = len(library.children(entry.entry_id))
+    out["change_summary"] = (
+        summarize_changes(diff_specs(parent.spec, entry.spec)) if parent else ""
+    )
+    return out
+
+
+async def _entry_detail(request: Request, entry_id: str) -> dict[str, Any]:
+    library = await _library(request)
+    entry = library.get(entry_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail=f"no library entry '{entry_id}'")
+    parent = library.get(entry.parent_id) if entry.parent_id else None
+    changes = diff_specs(parent.spec, entry.spec) if parent else []
+    return {
+        "entry": entry.to_dict(),
+        "parent": parent.to_dict() if parent else None,
+        # What changed from the parent, each paired with the reason that
+        # accounts for it -- or with nothing, which is itself the finding.
+        "changes": [c.to_dict() for c in explain_changes(changes, entry.decisions)],
+        "coverage": change_coverage(changes, entry.decisions),
+        "ancestry": [e.to_dict() for e in library.ancestry(entry_id)],
+        "children": [_row(library, c) for c in library.children(entry_id)],
+        "inherited": library.inherited_context(entry_id),
+    }
+
+
+@router.get("/api/library")
+async def library_list_entries(
+    request: Request,
+    kind: str = Query("", description="system | template"),
+    tag: str = Query(""),
+    q: str = Query("", description="search names, notes and reasons"),
+) -> dict[str, Any]:
+    """The library: saved systems, newest lineage context included."""
+    if kind and kind not in LIBRARY_KINDS:
+        raise HTTPException(status_code=400, detail=f"kind must be one of {LIBRARY_KINDS}")
+    library = await _library(request)
+    entries = library.list(kind=kind or None, tag=tag or None, query=q)
+    return {
+        "entries": [_row(library, e) for e in entries],
+        "summary": library.summary(),
+    }
+
+
+@router.get("/api/library/tree")
+async def library_tree(request: Request) -> list[dict[str, Any]]:
+    """The whole library as lineage trees, one per root."""
+    return (await _library(request)).tree()
+
+
+@router.post("/api/library/diff")
+async def library_diff(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Diff two specs. Pure compute -- no library, no database.
+
+    Takes the same spec shape the builder and ``POST /api/systems`` take, so the
+    dashboard can show what a form edit would change before anything is saved.
+    """
+    changes = diff_specs(body.get("before") or {}, body.get("after") or {})
+    return {
+        "changes": [c.to_dict() for c in changes],
+        "summary": summarize_changes(changes),
+        "count": len(changes),
+    }
+
+
+@router.post("/api/library/seed")
+async def library_seed(request: Request) -> dict[str, Any]:
+    """Add the bundled starter systems that are not already present."""
+    store = _store(request)
+    existing = {row["entry_id"] for row in await store.library_list()}
+    added = [e for e in bundled_entries() if e.entry_id not in existing]
+    for entry in added:
+        await store.library_save(entry.to_dict())
+    return {"added": [e.entry_id for e in added]}
+
+
+@router.post("/api/library/capture")
+async def library_capture(body: CaptureRequest, request: Request) -> dict[str, Any]:
+    """Save a registered system into the library, with where it came from.
+
+    If the system was started from a library entry, this is filed as the *next
+    version* of that entry rather than as a new root: the loop from library to
+    running twin and back is the one that makes the library accumulate instead
+    of collecting unrelated snapshots. A drifted system captured this way needs
+    a reason, exactly as any other revision does.
+    """
+    stored = await _store(request).get_system(body.system_id)
+    if stored is None:
+        raise HTTPException(status_code=404, detail=f"no system '{body.system_id}'")
+    spec = stored.get("spec")
+    if not spec:
+        raise HTTPException(
+            status_code=409,
+            detail=f"system '{body.system_id}' has no spec to save "
+            "(real-time feeds are a stream, not a design)",
+        )
+
+    library = await _library(request)
+    origin = library.get(stored.get("library_entry_id")) if stored.get("library_entry_id") else None
+    notes = [LibraryNote.from_dict(n) for n in body.notes]
+    try:
+        # The caller's own site comes back off first: a rack captured out of the
+        # world should differ from the design it came from by what somebody did
+        # to it, not by the weather it happened to be standing in.
+        spec = restore_site(spec, origin.spec if origin else None, body.site)
+        if origin is not None:
+            if not diff_specs(origin.spec, spec):
+                # Nothing has changed, so there is no new version to record.
+                return await _entry_detail(request, origin.entry_id)
+            entry = revise_entry(
+                origin,
+                spec,
+                because=body.because,
+                author=body.author,
+                name=body.name or origin.name,
+                summary=body.summary or None,
+                tags=body.tags or None,
+            )
+        else:
+            entry = new_library_entry(
+                spec,
+                name=body.name or stored.get("name") or body.system_id,
+                source="twin",
+                source_system_id=body.system_id,
+                author=body.author,
+                summary=body.summary,
+                tags=body.tags,
+            )
+        for note in notes:
+            entry = entry.with_note(note)
+    except SiteError as exc:
+        raise HTTPException(status_code=400, detail={"errors": [str(exc)]}) from None
+    except LibraryError as exc:
+        raise HTTPException(status_code=400, detail={"errors": [str(exc)]}) from None
+
+    await _store(request).library_save(entry.to_dict())
+    await _store(request).create_system(
+        body.system_id,
+        stored.get("name"),
+        stored.get("source") or "simulation",
+        spec,
+        stored.get("run_state") or "running",
+        entry.entry_id,
+    )
+    return await _entry_detail(request, entry.entry_id)
+
+
+@router.get("/api/library/{entry_id}")
+async def library_get_entry(entry_id: str, request: Request) -> dict[str, Any]:
+    """One entry, with its lineage, its diff from its parent, and what it inherits."""
+    return await _entry_detail(request, entry_id)
+
+
+@router.get("/api/library/{entry_id}/trace")
+async def library_trace(entry_id: str, request: Request) -> dict[str, Any]:
+    """How this system got here: every step from the root, and the reason for it."""
+    library = await _library(request)
+    if library.get(entry_id) is None:
+        raise HTTPException(status_code=404, detail=f"no library entry '{entry_id}'")
+    return library.trace(entry_id)
+
+
+@router.post("/api/library")
+async def library_save_entry(body: SaveEntryRequest, request: Request) -> dict[str, Any]:
+    """Save a system into the library as a new root entry."""
+    try:
+        entry = new_library_entry(
+            body.spec,
+            name=body.name,
+            kind=body.kind,
+            author=body.author,
+            summary=body.summary,
+            tags=body.tags,
+            validated=body.validated,
+            notes=[LibraryNote.from_dict(n) for n in body.notes],
+            decisions=[LibraryDecision.from_dict(d) for d in body.decisions],
+        )
+    except LibraryError as exc:
+        raise HTTPException(status_code=400, detail={"errors": [str(exc)]}) from None
+    return await _persist(request, entry)
+
+
+@router.post("/api/library/{entry_id}/fork")
+async def library_fork(entry_id: str, body: ForkRequest, request: Request) -> dict[str, Any]:
+    """Start a new system from an existing one. A fork without a reason is a 400."""
+    library = await _library(request)
+    parent = library.get(entry_id)
+    if parent is None:
+        raise HTTPException(status_code=404, detail=f"no library entry '{entry_id}'")
+    try:
+        entry = fork_entry(
+            parent,
+            body.spec,
+            name=body.name,
+            because=body.because,
+            author=body.author,
+            summary=body.summary,
+            tags=body.tags,
+            rejected=body.rejected,
+        )
+    except LibraryError as exc:
+        raise HTTPException(status_code=400, detail={"errors": [str(exc)]}) from None
+    return await _persist(request, entry)
+
+
+@router.post("/api/library/{entry_id}/revise")
+async def library_revise_entry(
+    entry_id: str, body: ReviseRequest, request: Request
+) -> dict[str, Any]:
+    """The next version of the same design. A revision without a reason is a 400."""
+    library = await _library(request)
+    parent = library.get(entry_id)
+    if parent is None:
+        raise HTTPException(status_code=404, detail=f"no library entry '{entry_id}'")
+    try:
+        entry = revise_entry(
+            parent,
+            body.spec,
+            because=body.because,
+            author=body.author,
+            name=body.name,
+            summary=body.summary,
+            tags=body.tags,
+            rejected=body.rejected,
+        )
+    except LibraryError as exc:
+        raise HTTPException(status_code=400, detail={"errors": [str(exc)]}) from None
+    return await _persist(request, entry)
+
+
+@router.post("/api/library/{entry_id}/promote")
+async def library_promote(entry_id: str, body: PromoteRequest, request: Request) -> dict[str, Any]:
+    """Promote a system into a template, carrying its notes and reasons with it."""
+    library = await _library(request)
+    entry = library.get(entry_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail=f"no library entry '{entry_id}'")
+    try:
+        template = promote_entry(
+            entry,
+            because=body.because,
+            name=body.name,
+            author=body.author,
+            summary=body.summary,
+            tags=body.tags,
+        )
+    except LibraryError as exc:
+        raise HTTPException(status_code=400, detail={"errors": [str(exc)]}) from None
+    return await _persist(request, template)
+
+
+@router.post("/api/library/{entry_id}/notes")
+async def library_add_note(entry_id: str, body: NoteRequest, request: Request) -> dict[str, Any]:
+    """Leave what you learned on the system you learned it on."""
+    library = await _library(request)
+    if library.get(entry_id) is None:
+        raise HTTPException(status_code=404, detail=f"no library entry '{entry_id}'")
+    if not body.text.strip():
+        raise HTTPException(status_code=400, detail="a note needs some text")
+    await _store(request).library_add_note(
+        entry_id, LibraryNote(text=body.text, kind=body.kind, author=body.author).to_dict()
+    )
+    return await _entry_detail(request, entry_id)
+
+
+@router.post("/api/library/{entry_id}/decisions")
+async def library_add_decision(
+    entry_id: str, body: DecisionRequest, request: Request
+) -> dict[str, Any]:
+    """Record why a number is the number it is, bound to the fields it justifies.
+
+    ``params`` is what makes this more than a comment: a decision bound to the
+    spec keys it covers is what stops those keys being reported as changes
+    nobody explained.
+    """
+    library = await _library(request)
+    if library.get(entry_id) is None:
+        raise HTTPException(status_code=404, detail=f"no library entry '{entry_id}'")
+    if not body.because.strip():
+        raise HTTPException(status_code=400, detail="a decision needs a 'because'")
+    await _store(request).library_add_decision(
+        entry_id,
+        LibraryDecision(
+            question=body.question,
+            choice=body.choice,
+            because=body.because,
+            params=tuple(body.params),
+            rejected=tuple(body.rejected),
+            author=body.author,
+        ).to_dict(),
+    )
+    return await _entry_detail(request, entry_id)
+
+
+@router.post("/api/library/{entry_id}/validated")
+async def library_set_validated(
+    entry_id: str, request: Request, body: dict[str, Any] = Body(default={})
+) -> dict[str, Any]:
+    """Mark that a human has checked this against something real.
+
+    Never inferred: a spec that runs is not a spec that is right, and the only
+    thing this flag can honestly mean is that somebody says so.
+    """
+    library = await _library(request)
+    if library.get(entry_id) is None:
+        raise HTTPException(status_code=404, detail=f"no library entry '{entry_id}'")
+    await _store(request).library_set_validated(entry_id, bool(body.get("validated", True)))
+    return await _entry_detail(request, entry_id)
+
+
+@router.delete("/api/library/{entry_id}")
+async def library_delete(entry_id: str, request: Request) -> dict[str, Any]:
+    """Delete one entry. Its forks survive, pointing at an id that is gone."""
+    deleted = await _store(request).library_delete(entry_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"no library entry '{entry_id}'")
+    return {"deleted": True, "entry_id": entry_id}
+
+
+@router.post("/api/library/{entry_id}/instantiate")
+async def library_instantiate(
+    entry_id: str, body: InstantiateRequest, request: Request
+) -> dict[str, Any]:
+    """Run a saved system as a live twin, remembering which entry it came from.
+
+    The link back is the point: a system started from the library can later be
+    captured as the *next version* of the design it came from, rather than as an
+    unrelated spec that happens to look similar.
+    """
+    library = await _library(request)
+    entry = library.get(entry_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail=f"no library entry '{entry_id}'")
+
+    try:
+        spec = SystemSpec.from_dict(apply_site(entry.spec, body.site))
+    except SiteError as exc:
+        raise HTTPException(status_code=400, detail={"errors": [str(exc)]}) from None
+    if body.system_id:
+        spec.system_id = body.system_id
+    if body.name:
+        spec.name = body.name
+    existing = await _store(request).get_system(spec.system_id)
+    if existing is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"system '{spec.system_id}' already exists; pass a 'system_id' "
+            "to run this entry alongside it",
+        )
+    started = await _start_simulation(
+        request, spec, body.name, body.autostart, body.speed, entry_id
+    )
+    started["entry_id"] = entry_id
+    # Reported back so the caller can hand the same list to `capture` and get an
+    # honest diff, rather than having to remember what it overrode.
+    started["site"] = sorted(k for k, v in body.site.items() if v is not None)
+    return started
+
+
 @router.get("/api/systems")
 async def list_systems(request: Request) -> list[dict[str, Any]]:
     """Registered systems (the twin registry), annotated with live status."""
@@ -1264,8 +2243,6 @@ async def create_system(body: CreateSystemRequest, request: Request) -> dict[str
     the twin core will show once an external source publishes to it.
     """
     store = _store(request)
-    mgr = _sim_manager(request)
-    settings = request.app.state.settings
 
     if body.source == "simulation":
         if not body.spec:
@@ -1273,17 +2250,7 @@ async def create_system(body: CreateSystemRequest, request: Request) -> dict[str
         spec = SystemSpec.from_dict(body.spec)
         if body.system_id:
             spec.system_id = body.system_id
-        errors = validate_spec(spec)
-        if errors:
-            raise HTTPException(status_code=400, detail={"errors": errors})
-        run_state = "running" if body.autostart else "stopped"
-        await store.create_system(
-            spec.system_id, body.name or spec.name, "simulation", spec.to_dict(), run_state
-        )
-        mgr.create(spec, speed=body.speed or settings.sim_default_speed)
-        if body.autostart:
-            run_state = await mgr.start(spec.system_id)
-        return {"system_id": spec.system_id, "source": "simulation", "run_state": run_state}
+        return await _start_simulation(request, spec, body.name, body.autostart, body.speed)
 
     if body.source == "realtime":
         if not body.system_id:
@@ -1292,6 +2259,36 @@ async def create_system(body: CreateSystemRequest, request: Request) -> dict[str
         return {"system_id": body.system_id, "source": "realtime", "run_state": "running"}
 
     raise HTTPException(status_code=400, detail="source must be 'simulation' or 'realtime'")
+
+
+async def _start_simulation(
+    request: Request,
+    spec: SystemSpec,
+    name: str | None,
+    autostart: bool,
+    speed: float | None,
+    library_entry_id: str | None = None,
+) -> dict[str, Any]:
+    """Validate, register and (optionally) start a twin-core simulation.
+
+    Shared by ``POST /api/systems`` and the library's instantiate route so that
+    running a saved system is the same act as running a built one -- the only
+    difference being that the library path remembers which entry it came from.
+    """
+    store = _store(request)
+    mgr = _sim_manager(request)
+    errors = validate_spec(spec)
+    if errors:
+        raise HTTPException(status_code=400, detail={"errors": errors})
+    run_state = "running" if autostart else "stopped"
+    await store.create_system(
+        spec.system_id, name or spec.name, "simulation", spec.to_dict(), run_state,
+        library_entry_id,
+    )
+    mgr.create(spec, speed=speed or request.app.state.settings.sim_default_speed)
+    if autostart:
+        run_state = await mgr.start(spec.system_id)
+    return {"system_id": spec.system_id, "source": "simulation", "run_state": run_state}
 
 
 async def _control(request: Request, system_id: str, action: str) -> dict[str, Any]:
@@ -1323,6 +2320,30 @@ async def resume_system(system_id: str, request: Request) -> dict[str, Any]:
     return await _control(request, system_id, "resume")
 
 
+async def _persist_spec(request: Request, system_id: str) -> None:
+    """Write a managed simulation's *current* spec back to the registry.
+
+    Injecting or repairing a fault changes the spec — that is what makes a fault
+    survive the run loop's duration rollover — but it changed it only in memory.
+    The registry column claiming to hold the system's spec then held the one it
+    was created with, which is wrong in two ways that matter: restarting the twin
+    core rebuilt the pack from the stale spec and silently repaired it, and
+    ``POST /api/library/capture`` saw a rack nobody had ever broken.
+    """
+    spec = _sim_manager(request).spec(system_id)
+    if spec is None:
+        return
+    stored = await _store(request).get_system(system_id)
+    await _store(request).create_system(
+        system_id,
+        (stored or {}).get("name"),
+        "simulation",
+        spec.to_dict(),
+        (stored or {}).get("run_state") or "running",
+        (stored or {}).get("library_entry_id"),
+    )
+
+
 @router.post("/api/systems/{system_id}/faults")
 async def inject_fault(
     system_id: str, body: InjectFaultRequest, request: Request
@@ -1347,6 +2368,7 @@ async def inject_fault(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail={"errors": [str(exc)]}) from None
+    await _persist_spec(request, system_id)
     return {"system_id": system_id, "injected": asdict(applied)}
 
 
@@ -1383,6 +2405,7 @@ async def remove_fault(system_id: str, index: int, request: Request) -> dict[str
         removed = await mgr.remove_fault(system_id, index)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail={"errors": [str(exc)]}) from None
+    await _persist_spec(request, system_id)
     return {"system_id": system_id, "removed": asdict(removed)}
 
 
@@ -1390,7 +2413,9 @@ async def remove_fault(system_id: str, index: int, request: Request) -> dict[str
 async def clear_faults(system_id: str, request: Request) -> dict[str, Any]:
     """Repair a system: drop every injected/declared fault from the running sim."""
     mgr = _require_sim(request, system_id)
-    return {"system_id": system_id, "cleared": await mgr.clear_faults(system_id)}
+    cleared = await mgr.clear_faults(system_id)
+    await _persist_spec(request, system_id)
+    return {"system_id": system_id, "cleared": cleared}
 
 
 @router.delete("/api/systems/{system_id}")

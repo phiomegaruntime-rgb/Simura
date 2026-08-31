@@ -53,6 +53,30 @@ class WeatherSpec:
 
 
 @dataclass
+class SpaceSpec:
+    """Optional building the system stands in -- which room, in which floor plan.
+
+    ``type`` is one of ``none | rect | json | gbxml | dxf | ifc | ifc_full`` (see
+    :mod:`simura.space.config`), ``params`` carries the provider's settings (a
+    ``path``, usually), and ``space_id`` names the room within that plan.
+
+    It is deliberately the same two-field shape as :class:`WeatherSpec`, because
+    it answers the neighbouring question. Weather says *what the sky is doing*;
+    this says *whether the sky reaches the equipment at all*. A rack in a
+    conditioned plant room sits at a setpoint with no solar gain; the same rack
+    in a yard takes the weather in full -- and until a spec could say which, that
+    difference had to be typed in as an ambient somebody guessed.
+
+    ``type="none"`` (the default) means no building, and the pack behaves exactly
+    as it did before this field existed.
+    """
+
+    type: str = "none"
+    params: dict[str, Any] = field(default_factory=dict)
+    space_id: str = ""
+
+
+@dataclass
 class SystemSpec:
     """A complete, serializable description of a battery system to simulate."""
 
@@ -89,6 +113,7 @@ class SystemSpec:
     profile: ProfileSpec = field(default_factory=ProfileSpec)
     faults: list[FaultSpec] = field(default_factory=list)
     weather: WeatherSpec = field(default_factory=WeatherSpec)
+    space: SpaceSpec = field(default_factory=SpaceSpec)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -101,7 +126,7 @@ class SystemSpec:
         just what the user changed and older/newer clients stay compatible.
         """
         known = {f.name for f in fields(cls)}
-        nested = ("profile", "faults", "weather")
+        nested = ("profile", "faults", "weather", "space")
         kwargs: dict[str, Any] = {k: v for k, v in d.items() if k in known and k not in nested}
 
         weather = d.get("weather")
@@ -109,6 +134,14 @@ class SystemSpec:
             kwargs["weather"] = WeatherSpec(
                 type=str(weather.get("type", "none")),
                 params=dict(weather.get("params", {})),
+            )
+
+        space = d.get("space")
+        if isinstance(space, dict):
+            kwargs["space"] = SpaceSpec(
+                type=str(space.get("type", "none")),
+                params=dict(space.get("params", {})),
+                space_id=str(space.get("space_id", "")),
             )
 
         prof = d.get("profile")

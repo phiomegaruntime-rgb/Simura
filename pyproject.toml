@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "simura"
-version = "0.17.0"
+version = "0.19.0"
 description = "An open, physics-based digital twin for battery energy storage systems (BESS)."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -37,6 +37,12 @@ docs = [
 ]
 validate = [
     "scipy>=1.10",   # only needed to read MATLAB (.mat) datasets (NASA, Oxford)
+]
+bim = [
+    # Only for the optional `ifc_full` provider, which resolves geometry the
+    # pure-Python IFC reader declines to guess about (B-reps, tessellations,
+    # mapped representations). Everything else in simura.space needs nothing.
+    "ifcopenshell>=0.7",
 ]
 
 [tool.hatch.build.targets.wheel]

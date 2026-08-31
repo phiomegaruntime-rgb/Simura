@@ -8,7 +8,7 @@ simulation; they share one framework — a twin core (REST + WebSocket API), a l
 dashboard, and a "replay against real reference data" validation approach — so a
 new component plugs its own physics into machinery that already exists.
 
-Three components exist today:
+Four components exist today:
 
 - **🔋 Batteries (BESS)** — the flagship. Simulate a battery from a single cell to
   a full rack with real electro-thermal dynamics, cell-to-cell imbalance, and
@@ -19,6 +19,11 @@ Three components exist today:
   voltage drop, ohmic loss and electro-thermal heating, a catalog of real wire
   types, a wiring planner (ampacity / voltage-drop / gauge sizing), a multi-node
   network solver, and validation against published conductor standards.
+- **🏢 Building** — import somebody else's BIM model (IFC, gbXML, DXF) as a 2D
+  floor plan the other three simulate against: rooms with real outlines and a
+  purpose, walls, doorways, and where on Earth the building stands. Every value
+  the importer had to assume is recorded with the basis it came from, so no
+  number downstream silently rests on a guess.
 - **💡 Lights** — every light source from an LED to a sodium arc, simulated from
   its spectrum up. Planck's law and the CIE observer *compute* each lamp's
   efficacy rather than looking it up, so a dimmed filament goes orange as its
@@ -54,15 +59,19 @@ wires, and lights today; more later) is an independent physics library that plug
 the same twin core, dashboard, and validation approach.
 
 **Phase 2 (in progress)** turns that substrate outward, which is where the mission
-actually lives. The first piece is built: a layer that lets a non-expert **get familiar**
-with a model. Ask what a running system is doing and why, in your own field's terms and
+actually lives. Two pieces are built. A layer that lets a non-expert **get familiar**
+with a model: ask what a running system is doing and why, in your own field's terms and
 at whichever of three depths you want, and the answer is *computed* — Simura decomposes
 the model's own governing equation at the operating point in front of you and builds the
 sentence from whichever term actually won, so an explanation cannot drift away from the
-physics it describes. Still to come: a five-minute first simulation, memory that persists
-across projects instead of restarting from zero, multiplayer collaboration across
-domains, and community-contributed physics. See [getting familiar](docs/explain.md) and
-the [roadmap](docs/roadmap.md).
+physics it describes. And a **system library**, so a project inherits the last one
+instead of starting from zero: saved systems carry the *reason* behind each choice and
+the lineage back to what they were forked from, and — the same commitment again — what
+changed between two systems is computed from the specs themselves, so the only thing
+anybody types is why. Still to come: a five-minute first simulation, multiplayer
+collaboration across domains, and community-contributed physics. See
+[getting familiar](docs/explain.md), [the system library](docs/library.md) and the
+[roadmap](docs/roadmap.md).
 
 ## Quick start
 
@@ -83,6 +92,14 @@ python examples/wire_thermal.py         # watch an undersized conductor overheat
 python examples/light_planning.py       # light a room, then see where the light falls
 python examples/light_spectrum.py       # where efficacy comes from, and what dimming costs
 python examples/light_weather.py        # photocells, daylight harvesting, cold tubes
+
+# The library: memory that survives the project
+python examples/inherit_a_system.py     # three engineers, one file, and why the numbers are the numbers
+python -m simura.library --seed --list  # a library in one JSON file, no services
+
+# The building: somebody else's BIM model, and what it tells the rest
+python examples/import_a_building.py    # four simulations standing inside one file
+python -m simura.space --demo --rooms-table --route 3,3.8 21,3.8
 ```
 
 **The full twin** (broker + TimescaleDB + twin core + a simulated asset):
@@ -99,6 +116,10 @@ Then open:
   pack's live cell heatmap, trends, and fault timeline), **Wires** for the wiring
   planner and conductor-model validation, or **Lights** for the lighting planner,
   lamp spectra and photometric validation ([docs](docs/lights.md)).
+  **Building** imports a BIM model as a floor plan the other three simulate
+  against ([docs](docs/space.md)), **Learn** explains every model in plain
+  language ([docs](docs/explain.md)), and **Library** holds every saved system
+  with the reasoning and lineage behind it ([docs](docs/library.md)).
 - **API docs** — <http://localhost:8000/docs>
 
 > First run after a rename or a DB name change? Postgres only initializes its user
@@ -112,6 +133,7 @@ curl localhost:8000/api/systems/bess-01/state         # latest frame
 curl "localhost:8000/api/systems/bess-01/history?minutes=10&bucket_s=5"
 curl localhost:8000/api/wires/catalog                 # wire component (pure compute)
 curl localhost:8000/api/lights/catalog                # lights component (pure compute)
+curl localhost:8000/api/library                       # saved systems, with a computed diff per row
 # live stream:  ws://localhost:8000/ws/systems/bess-01
 ```
 
@@ -330,9 +352,26 @@ simulations* the mission describes. The **"get familiar" layer is done** (Compon
 `simura.explain` answers *what is this system doing, and why* in your own field's terms,
 at whichever of three depths you want — and it does it by decomposing the model's own
 governing equation at the live operating point rather than by storing sentences about
-what usually happens. See [docs/explain.md](docs/explain.md). Still to come: a
-five-minute first simulation, memory that persists across projects instead of restarting
-from zero, multiplayer collaboration across domains, and community-contributed physics.
+what usually happens. See [docs/explain.md](docs/explain.md). **Memory that survives the
+project is done** (Component 17): `simura.library` keeps saved systems with their
+decisions, their notes, and their lineage, so project N+1 starts from project N — and
+because a diff between two specs is computed rather than remembered, the record cannot
+drift from the systems it describes, and a change nobody explained is *reported* instead
+of assumed fine. See [docs/library.md](docs/library.md). Still to come: a
+five-minute first simulation, multiplayer collaboration across domains, and
+community-contributed physics.
+
+**Phase 2.1 — the world outside the model (in parallel).** A second track, on a
+question neither phase had asked: every simulation Simura runs *stands
+somewhere*, and it did not know where. **The building is done** (Component 20):
+`simura.space` imports an IFC, gbXML or DXF model as a 2D floor plan, and four
+things that used to be typed from memory become computed — where the weather is,
+how big each room is and what it is for, how long the cable between two rooms
+actually runs, and whether the sun reaches a rack at all. The commitment it is
+built on is the one BIM interoperability usually breaks: **an import declares
+what it could not read**, so a lux figure resting on an assumed ceiling height
+says so instead of looking exactly like a measurement. Parsed in pure Python —
+no plug-in, no geometry kernel. See [docs/space.md](docs/space.md).
 Everything in Phase 2 runs locally — the hosted, public-URL half is parked under
 *Deferred — hosting & deployment*. Full detail in [docs/roadmap.md](docs/roadmap.md);
 design in [docs/architecture.md](docs/architecture.md).

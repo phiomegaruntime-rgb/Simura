@@ -22,6 +22,8 @@ so you don't even need to `pip install` first.
 | [`light_weather.py`](light_weather.py) | **Weather-coupled lighting** — the same ambient makes a fluorescent tube dim and an LED bright, a street light follows the real sunset on a photocell, and a daylit office dims against the sky. `--live` points it at a real place via Open-Meteo. |
 | [`field_station.py`](field_station.py) | **Every component on one site** — design an off-grid workshop end to end: the sky over it, the lamps that light it, the cable that feeds them, the voltage drop that comes *back* and changes the light, and the battery that carries the night. The one example where the components compose instead of standing alone. `--live` pulls the real sky from Open-Meteo. |
 | [`explain_a_fault.py`](explain_a_fault.py) | **An explanation that is computed, not written** — run the same pack healthy and with an internal short, and watch the fault-heat term appear in the ranking. Nothing tells the explainer a fault is present; the term is there because the fault put heat into the model's heat balance. Also shows the same pack read by three different domains, and one quantity at three depths. |
+| [`inherit_a_system.py`](inherit_a_system.py) | **Memory that survives the project** — three engineers, one library file, no services. Ana designs a rack, Ben inherits it for a hotter site and types one sentence, and Cass reads the whole argument back six months later. Nobody types *what* changed: every diff line is computed from the two specs as it is printed. Ends by showing what a change with no reason on file looks like. |
+| [`import_a_building.py`](import_a_building.py) | **Somebody else's BIM model, and four simulations standing inside it** — a gbXML file tells the weather where the building is, the lighting planner how big every room is and what it is for, the wiring planner how long the cable actually runs, and a battery rack whether the sun reaches it. Ends with the same rack in two rooms on the same 34 °C day: 22.7 °C in the conditioned office, 39.7 °C in the plant room. Every value the importer had to assume is listed, with the basis it came from. |
 | [`connectors/`](connectors/) | Config files for the real-hardware connectors (Modbus / OPC-UA / MQTT). See [connectors/README.md](connectors/README.md). |
 
 ```bash
@@ -40,6 +42,8 @@ python examples/light_spectrum.py
 python examples/light_weather.py
 python examples/field_station.py
 python examples/explain_a_fault.py
+python examples/inherit_a_system.py
+python examples/import_a_building.py
 ```
 
 These double as the friendliest **good first areas** for contributors: a new

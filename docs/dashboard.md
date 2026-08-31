@@ -10,8 +10,9 @@ hardware feeds.
 
 The dashboard opens on a **landing page of cards**, one per simulation
 component — **Batteries** (the BESS twin), **Wires** (the conductor library) and
-**Lights** (the lighting designer) — plus **Learn**, which is not a component but the
-reading room for all three.
+**Lights** (the lighting designer) — plus three that are not components:
+**Building**, the floor plan all three of them stand in, **Learn**, the reading
+room for all three, and **Library**, the record of every system built with them.
 The header shows no nav here; the cards *are* the nav. Picking a card drills into
 that component and the header switches to a sub-nav scoped to just that
 component (with a **← Components** link back to the landing). The Simura logo
@@ -20,10 +21,65 @@ returns to the landing from anywhere.
 - **Batteries** → Fleet, Build, Validation.
 - **Wires** → Wiring planner, Validation.
 - **Lights** → Lighting planner, Validation.
+- **Building** → Floor plan.
 - **Learn** → Model cards.
+- **Library** → Saved systems.
 
 Optional modules installed under `dashboard/src/modules/` add cards of their own
 here; see [Contributing](contributing.md) for the contract.
+
+## Building (Component 20)
+
+Import an IFC, gbXML or DXF model and the view draws the floor plan — and, beside
+it, everything the importer could not read. See [The building](space.md).
+
+**That adjacency is the whole information architecture of the screen.** A plan on
+its own looks authoritative: clean polygons, round numbers. The one thing a
+reader cannot see in it is which of those numbers came out of the file and which
+the importer supplied. So the fidelity panel is not behind a tab or a "details"
+disclosure — it sits next to the drawing, with each assumed value and the basis
+it came from, and rooms resting on an assumption are **hatched in the drawing
+itself**.
+
+Below the plan sit the three couplings:
+
+- **Where on Earth this is.** A georeferenced model hands back the
+  `simura.weather` source its own coordinates imply, ready to paste into a
+  system's spec. Nobody types a latitude.
+- **Click a room** for its use, its real extents, its ceiling height, and the
+  ambient a system standing in it would be in — with the sentence that explains
+  that ambient. A room that is not a rectangle says that the lumen method is
+  being applied to a best-fit rectangle, and by how much the two differ.
+- **Click two points** to trace a cable between them through the building's own
+  doorways. The run shows its legs, because a computed length is only worth
+  having if somebody can check where the metres went, and it is derated for the
+  hottest room it passes through.
+- **Design every room** runs the whole building through the lighting planner and
+  totals the installed watts. Rooms that cannot honestly be designed as read are
+  listed with the reason rather than quietly omitted.
+
+The view is stateless: the plan lives in the browser and is posted back to each
+pure-compute route, so nothing about a building is stored on the server.
+
+## Library (Component 17)
+
+The **Library** section lists every saved system, each row carrying a one-line
+diff from whatever it was forked from. Opening one shows what changed with the
+reason underneath — grouped, because one reason usually covers several fields —
+and where there is no reason, a highlighted line saying so plus a form that binds
+a new one to exactly the fields you tick.
+
+The rest of the panel is the context a spec file cannot carry: the decisions and
+what they rejected, the notes and gotchas people left, everything inherited from
+further up the chain, the lineage itself, and what grew out of this system since.
+Actions run it as a live twin, promote it to a template, mark it checked, or open
+it in the builder.
+
+**Open in builder** is where the two halves meet: the builder then shows a live,
+server-computed diff against the entry as you type and offers two saves —
+*as v n+1* (this design's next version) or *as a fork* (a second design). Both
+require a reason; neither asks you to describe the change. See
+[the system library](library.md).
 
 ## Fleet overview
 

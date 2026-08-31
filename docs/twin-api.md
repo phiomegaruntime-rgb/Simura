@@ -17,7 +17,7 @@ the MQTT **envelope** (`{system_id, timestamp, telemetry}`) — never the simula
 | `POST` | `/api/systems` | Create a **simulation** (from a spec, twin-core-run) or register a **real-time** system. |
 | `POST` | `/api/systems/{id}/start` \| `/pause` \| `/resume` | Control a simulation's run state (409 for real-time). |
 | `GET` | `/api/systems/{id}/faults` | Every fault on a simulation, in the order applied. A fault's position is its handle. |
-| `POST` | `/api/systems/{id}/faults` | Inject a fault into a **running** simulation (`{type, series, parallel, params}`), effective on its next timestep. 409 for real-time. |
+| `POST` | `/api/systems/{id}/faults` | Inject a fault into a **running** simulation (`{type, series, parallel, params}`), effective on its next timestep. 409 for real-time. The system's stored spec is updated too, so the fault survives a twin-core restart and a rack somebody broke can be saved back to the library as it now is. |
 | `DELETE` | `/api/systems/{id}/faults/{index}` | Repair **one** fault by position — fix a cell without fixing the pack. |
 | `DELETE` | `/api/systems/{id}/faults` | Repair: drop every fault from the running simulation and its spec. |
 | `DELETE` | `/api/systems/{id}` | Purge a system: stop its sim, clear retained config, delete registry + history. |
@@ -34,6 +34,27 @@ the MQTT **envelope** (`{system_id, timestamp, telemetry}`) — never the simula
 | `GET` | `/api/systems/{id}/assessment` | Latest full assessment (diagnosis, per-cell SoH, RUL, safety). |
 | `GET` | `/api/systems/{id}/assessment/history?minutes=&bucket_s=` | State-of-health history. |
 | `GET` | `/api/systems/{id}/explain?domain=&level=&series=&parallel=` | What this twin is doing and why, decomposed from the model's own equations. Reports `source: "model"` when the twin core owns the running simulation (exact — it can read the fault and weather coefficients telemetry cannot carry) or `source: "telemetry"` when the operating point had to be inferred from the latest frame, in which case every attribution says so. Defaults to the hottest cell. |
+
+**The building** (see [The building](space.md))
+
+Pure compute — no broker, no database, nothing stored. The client holds the plan
+and posts it back, exactly as it does for `/api/wires/network`, because a floor
+plan is an artifact somebody keeps rather than a session on a server. Only the
+import needs the file.
+
+| Method | Path | Returns |
+|--------|------|---------|
+| `GET` | `/api/space/options` | Which building formats can be imported, what each one takes, and the occupancy vocabulary — so the import form is built from the code that implements it. |
+| `POST` | `/api/space/import` | Upload an IFC / gbXML / DXF file. Returns the floor plan **and its fidelity record**: showing one without the other is showing half the answer. Format is detected from the name then the contents; DXF layer conventions can be declared. |
+| `POST` | `/api/space/plan` | Build a plan from a server-side source (a saved plan, the generated example) and return the document. |
+| `POST` | `/api/space/summary` | The rollup: rooms, area, where it is, what was assumed. |
+| `POST` | `/api/space/lighting` | Every room as a lighting problem with its real extents and its own task target; with `recommend: true`, each is designed and the building totalled. Rooms that cannot honestly be designed are still returned, with the reason. |
+| `POST` | `/api/space/layout` | An illuminance field over **one room's real outline**, masking grid points outside it. Distinct from `/api/lights/layout`, which lights a rectangle — in an L-shaped room the two disagree substantially, and a masked point comes back `null` because it is not dark floor, it is not floor. |
+| `POST` | `/api/space/route` | A cable run traced through the building's own doorways, with its legs visible and the rooms it crossed named. With a `wire_type`, the `simura.wires` assessment of that run — derated for the hottest room on it, because a conductor is rated by its worst metre. |
+| `POST` | `/api/space/ambient` | What the environment is in one room, and the sentence that explains it. |
+| `POST` | `/api/space/at` | Which room a point falls in. `null` is a real answer: outdoors is somewhere to stand. |
+| `POST` | `/api/space/weather` | The `simura.weather` source the model's own coordinates imply — importing a building configures the sky over it with nothing typed in. |
+| `POST` | `/api/space/grid` | Task-area sample points inside one room. |
 
 **Validation** (see [Validation](validation.md))
 
@@ -90,6 +111,32 @@ the MQTT **envelope** (`{system_id, timestamp, telemetry}`) — never the simula
 Every response carries both `explanations` (rendered for one reader at one depth) and
 `attributions` (the raw decomposition). They are two views of one computation, so a
 client showing the physics level and a client showing the headline can never disagree.
+
+**The system library** (Component 17 — see [library.md](library.md))
+
+Nothing here stores a description of how one system differs from another: every
+`changes` field is computed from the two specs on read and labelled from the
+model cards, so it cannot fall out of step with the systems it describes. What a
+caller supplies is the reason, and the library binds it to the fields that moved.
+
+| Method | Path | Returns |
+|--------|------|---------|
+| `GET` | `/api/library?kind=&tag=&q=` | Saved systems + a summary. Each row carries a **computed** one-line diff from its parent and how many forks it has. `q` searches notes and reasons, not just names. |
+| `GET` | `/api/library/{id}` | One entry with its parent, the diff from it **paired with the decision that accounts for each change**, a coverage report, its ancestry, its children, and the notes and decisions it inherits from further up the chain. |
+| `GET` | `/api/library/{id}/trace` | The whole story: every step from the root with its computed changes, the reasons given, and how many changes nobody accounted for. |
+| `GET` | `/api/library/tree` | Lineage trees, one per root. |
+| `POST` | `/api/library` | Save a system as a new root entry (`{spec, name?, summary?, tags?, author?, notes?, decisions?}`). 400 if the spec would not run. |
+| `POST` | `/api/library/diff` | `{before, after}` → what differs, in plain language. Pure compute — no library, no database — so a form can show what an edit would change before anything is saved. |
+| `POST` | `/api/library/{id}/fork` | Start a new system from this one (`{name, because, spec?, …}`). **400 without a `because`**: a fork with no reason is the thing this component exists to stop. |
+| `POST` | `/api/library/{id}/revise` | The next version of the same design (`{spec, because, …}`). Also 400 without a reason. |
+| `POST` | `/api/library/{id}/promote` | Promote a system into a template, carrying its notes and decisions forward (`{because, name?}`). |
+| `POST` | `/api/library/{id}/notes` | Leave what you learned (`{text, kind: note\|gotcha\|result, author?}`). |
+| `POST` | `/api/library/{id}/decisions` | Record why a number is what it is (`{question, because, params[], rejected[]}`). `params` binds it to the spec keys it justifies, which is what stops those keys being reported as unexplained. |
+| `POST` | `/api/library/{id}/validated` | Mark that a person has checked this against something real. Never inferred. |
+| `POST` | `/api/library/{id}/instantiate` | Run a saved system as a live twin, recording which entry it came from (409 if that system id is already registered). `site` lets a caller with a place of its own — the 3D sandbox stands a rack in the world's weather and wires it to the world's loads — supply `weather`, `profile` and `duration_s`; any other field is a 400, since what runs has to be the design the entry records. |
+| `POST` | `/api/library/capture` | Save a **running** system back. If it was started from an entry and has drifted, this is filed as that entry's next version and needs a `because`; otherwise it starts a new record with `source: "twin"`. `site` names the fields the caller supplied itself; they come back off before the entry is recorded, so what is saved differs from its parent by what somebody *did* to the system rather than by where it was standing. |
+| `POST` | `/api/library/seed` | Add whichever bundled starter systems are missing. |
+| `DELETE` | `/api/library/{id}` | Delete one entry. Its forks survive, with their lineage honestly stopping at the id that is gone. |
 
 **Weather**
 

@@ -14,6 +14,7 @@ physics, they are what will notice.
 
 from __future__ import annotations
 
+import json
 import math
 
 import pytest
@@ -814,3 +815,63 @@ def test_supply_point_serializes():
     d = light.at_supply(46.0).to_dict()
     assert d["regulated"] is True
     assert "luminous_flux_lm" in d["point"]
+
+
+# ---------------------------------------------------------------------------
+# Rooms that are not rectangles
+# ---------------------------------------------------------------------------
+
+L_SHAPED_ROOM = [(0.0, 0.0), (8.0, 0.0), (8.0, 4.0), (4.0, 4.0), (4.0, 7.0), (0.0, 7.0)]
+
+
+def _l_shaped_layout(outline):
+    """The same three fittings, solved over a rectangle and over the real room."""
+    layout = Layout(8.0, 7.0, grid_n=9, outline=outline)
+    for x, y in ((2.0, 2.0), (6.0, 2.0), (2.0, 5.5)):
+        layout.add(f"L{x}-{y}", x, y, 2.7, LightSpec(lamp_type="led-15-e27"))
+    return layout
+
+
+def test_a_room_outline_is_measured_instead_of_its_bounding_box():
+    solved = _l_shaped_layout(L_SHAPED_ROOM).solve()
+    assert solved.area_m2 == pytest.approx(44.0)          # the room
+    assert _l_shaped_layout(None).solve().area_m2 == pytest.approx(56.0)  # the box
+
+
+def test_grid_points_outside_the_room_are_masked_not_darkened():
+    # A point in the notch is not floor receiving no light; it is not floor. It
+    # comes back as null so a heatmap can leave it blank rather than paint it
+    # black, and so it never drags the statistics down.
+    solved = _l_shaped_layout(L_SHAPED_ROOM).solve()
+    masked = [v for row in solved.grid for v in row if v is None]
+    assert masked, "an L-shaped room must mask some of its bounding box"
+    assert all(v > 0 for row in solved.grid for v in row if v is not None)
+
+
+def test_the_notch_is_what_was_dragging_the_uniformity_down():
+    # The finding this feature exists to produce: the same three fittings in the
+    # same places are a better design than the rectangle said they were, because
+    # a fifth of the "room" the rectangle measured was never floor.
+    box = _l_shaped_layout(None).solve()
+    room = _l_shaped_layout(L_SHAPED_ROOM).solve()
+    assert room.average_lux > box.average_lux
+    assert room.uniformity > box.uniformity
+    assert room.min_lux > box.min_lux
+
+
+def test_a_solved_outline_travels_with_the_result():
+    solved = _l_shaped_layout(L_SHAPED_ROOM).solve()
+    assert len(solved.outline) == len(L_SHAPED_ROOM)
+    # And the whole result is still serializable, masked points included.
+    assert json.loads(json.dumps(solved.to_dict()))["outline"]
+
+
+def test_a_layout_with_no_outline_is_exactly_what_it_always_was():
+    # The feature is additive: every existing caller passes no outline and gets
+    # the rectangular grid, unmasked, over the same points as before.
+    solved = Layout(6.0, 4.0, grid_n=5).add(
+        "L1", 3.0, 2.0, 2.5, LightSpec(lamp_type="led-15-e27")
+    ).solve()
+    assert solved.outline == []
+    assert all(v is not None for row in solved.grid for v in row)
+    assert solved.area_m2 == pytest.approx(24.0)

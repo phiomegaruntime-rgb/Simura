@@ -101,7 +101,10 @@ class LayoutResult:
     total_power_w: float
     power_density_w_per_m2: float
     area_m2: float
-    grid: list[list[float]]        # illuminance at each grid point, row-major
+    # Illuminance at each grid point, row-major. `None` where the grid point
+    # falls outside the room's outline -- see `Layout(outline=...)`. A masked
+    # point is not darkness and must not be rendered as though it were.
+    grid: list[list[float | None]]
     grid_x_m: list[float]
     grid_y_m: list[float]
     luminaires: list[LuminaireResult]
@@ -109,6 +112,8 @@ class LayoutResult:
     indirect_lux: float = 0.0           # the uniform bounced component
     daylight_lux: float = 0.0
     target_lux: float = 0.0
+    # The room outline the field was solved over, when it was not a rectangle.
+    outline: list[list[float]] = field(default_factory=list)
     problems: list[str] = field(default_factory=list)
 
     @property
@@ -135,14 +140,40 @@ class Layout:
         width_m: float,
         workplane_height_m: float = 0.75,
         grid_n: int = 9,
+        outline: list[tuple[float, float]] | None = None,
     ) -> None:
+        """A rectangular room, or -- with ``outline`` -- the room a building has.
+
+        ``outline`` is a closed polygon of ``(x, y)`` metres **in the same frame
+        as the luminaire positions**. Give one and the grid spans its bounding
+        box and is masked to its interior, and the area is the polygon's rather
+        than ``length x width``.
+
+        That distinction is the whole reason the argument exists. An L-shaped
+        room lit as its bounding rectangle reports an average that includes
+        points in the notch -- floor that does not exist, receiving light from
+        fittings that are not above it -- and a uniformity the re-entrant corner
+        never sees. ``length_m`` and ``width_m`` are still required because the
+        room index the lumen method needs is a rectangle's; with an outline they
+        should be its best-fit rectangle, and the caller should say so (see
+        :meth:`simura.space.plan.Space.rectangular`).
+        """
         if length_m <= 0 or width_m <= 0:
             raise ValueError("a layout needs a positive length and width")
         self.length_m = float(length_m)
         self.width_m = float(width_m)
         self.workplane_height_m = float(workplane_height_m)
         self.grid_n = max(3, min(int(grid_n), 41))
+        self.outline: list[tuple[float, float]] = (
+            [(float(x), float(y)) for x, y in outline] if outline else []
+        )
         self.luminaires: list[Luminaire] = []
+
+    def area_m2(self) -> float:
+        """Floor area: the outline's, when there is one, else the rectangle's."""
+        if len(self.outline) >= 3:
+            return _polygon_area(self.outline)
+        return self.length_m * self.width_m
 
     def _mean_mount_height(self) -> float:
         """Average luminaire height above the working plane, for the room index."""
@@ -260,14 +291,26 @@ class Layout:
             )
 
         # The grid: interior points, half a cell in from each wall, so the edges
-        # are not double-counted the way a corner-anchored grid would.
-        xs = [self.length_m * (i + 0.5) / self.grid_n for i in range(self.grid_n)]
-        ys = [self.width_m * (j + 0.5) / self.grid_n for j in range(self.grid_n)]
+        # are not double-counted the way a corner-anchored grid would. With an
+        # outline the grid spans its bounding box instead, and every point
+        # outside the room is masked out rather than solved -- a point in the
+        # notch of an L-shaped room is not dark floor, it is not floor.
+        if len(self.outline) >= 3:
+            min_x, min_y, max_x, max_y = _bounds(self.outline)
+        else:
+            min_x, min_y, max_x, max_y = 0.0, 0.0, self.length_m, self.width_m
+        span_x, span_y = max_x - min_x, max_y - min_y
+        xs = [min_x + span_x * (i + 0.5) / self.grid_n for i in range(self.grid_n)]
+        ys = [min_y + span_y * (j + 0.5) / self.grid_n for j in range(self.grid_n)]
 
-        grid: list[list[float]] = []
+        masked = len(self.outline) >= 3
+        grid: list[list[float | None]] = []
         for y in ys:
-            row: list[float] = []
+            row: list[float | None] = []
             for x in xs:
+                if masked and not _point_inside((x, y), self.outline):
+                    row.append(None)
+                    continue
                 total = daylight
                 for lum, intensity, mount, beam in emitters:
                     if intensity <= 0:
@@ -280,8 +323,8 @@ class Layout:
                 row.append(round(total, 2))
             grid.append(row)
 
-        area = self.length_m * self.width_m
-        flat = [v for row in grid for v in row]
+        area = self.area_m2()
+        flat = [v for row in grid for v in row if v is not None]
         direct_average = sum(flat) / len(flat) if flat else 0.0
 
         # Split flux: the bounced light is added uniformly, sized so the room
@@ -296,8 +339,11 @@ class Layout:
             )
             target_average = total_flux * uf / area
             indirect = max(0.0, target_average - (direct_average - daylight))
-            grid = [[round(v + indirect, 2) for v in row] for row in grid]
-            flat = [v for row in grid for v in row]
+            grid = [
+                [None if v is None else round(v + indirect, 2) for v in row]
+                for row in grid
+            ]
+            flat = [v for row in grid for v in row if v is not None]
 
         average = sum(flat) / len(flat) if flat else 0.0
         lo = min(flat) if flat else 0.0
@@ -341,8 +387,48 @@ class Layout:
             indirect_lux=round(indirect, 2),
             daylight_lux=round(daylight, 2),
             target_lux=round(target_lux, 1),
+            outline=[[round(x, 4), round(y, 4)] for x, y in self.outline],
             problems=problems,
         )
+
+
+# Three small geometry helpers, deliberately local rather than imported from
+# `simura.space`. The dependency arrow runs the other way -- a floor plan knows
+# how to describe a room to this module, and this module knows nothing about
+# floor plans -- exactly as `simura.lights.environment` takes a weather sample
+# without importing `simura.weather`. Duplicating twenty lines of ray casting is
+# the cheaper of the two costs.
+
+def _polygon_area(poly: list[tuple[float, float]]) -> float:
+    if len(poly) < 3:
+        return 0.0
+    total = 0.0
+    for i, (x1, y1) in enumerate(poly):
+        x2, y2 = poly[(i + 1) % len(poly)]
+        total += x1 * y2 - x2 * y1
+    return abs(total) / 2.0
+
+
+def _bounds(poly: list[tuple[float, float]]) -> tuple[float, float, float, float]:
+    xs = [p[0] for p in poly]
+    ys = [p[1] for p in poly]
+    return (min(xs), min(ys), max(xs), max(ys))
+
+
+def _point_inside(pt: tuple[float, float], poly: list[tuple[float, float]]) -> bool:
+    """Ray casting. A point on the boundary may fall either way; the grid never
+    places one exactly there, because its samples sit half a cell inside."""
+    x, y = pt
+    n = len(poly)
+    inside = False
+    for i in range(n):
+        x1, y1 = poly[i]
+        x2, y2 = poly[(i + 1) % n]
+        if (y1 > y) != (y2 > y):
+            t = (y - y1) / (y2 - y1)
+            if x < x1 + t * (x2 - x1):
+                inside = not inside
+    return inside
 
 
 def build_layout(spec: dict[str, Any]) -> Layout:

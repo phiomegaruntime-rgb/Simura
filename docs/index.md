@@ -59,6 +59,14 @@ core, dashboard, and validation approach.
   driven, producing the same telemetry envelope as the simulator.
 - **[Validation](validation.md)** — replay real reference data (open battery
   datasets; published conductor standards) through the model and report the error.
+- **[Getting familiar](explain.md)** — explanations computed from each model's own
+  governing equation, in your field's words and at the depth you ask for.
+- **[The building](space.md)** — import an IFC, gbXML or DXF model as a 2D floor
+  plan the other components simulate against, with every value the importer had
+  to assume recorded rather than hidden.
+- **[System library](library.md)** — saved systems with the reason behind each
+  choice and the lineage back to what they were forked from, so the next project
+  starts from the last one.
 - **[Dashboard](dashboard.md)** — a live React app that opens on component cards
   and scopes its navigation to the component you pick.
 
