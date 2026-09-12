@@ -77,8 +77,12 @@ with it empty. `src/lib/modules.ts` discovers whatever is installed there and
 merges each module's landing card and sub-nav into the app's navigation.
 
 A module is a directory with an `index.ts` default-exporting a `DashboardModule`
-(a `Section` plus a `load()` for its root view). Three rules keep the core app
-independent of what's installed:
+(a `Section` plus a `load()` for its root view). Its root view receives
+`onExit()`, which returns to the landing cards. Two optional flags decide how
+much of the window it gets: `fullBleed` drops the dashboard's reading measure,
+and `immersive` also removes the top bar and footer so the view is the whole
+window — an immersive view must then offer its own way out through `onExit`.
+Three rules keep the core app independent of what's installed:
 
 - **No core file may import a module by name** — discovery is by glob only, so a
   missing module is an empty landing card list, never a build error.

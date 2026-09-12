@@ -180,6 +180,25 @@ export default function App() {
           : "All cells within nominal temperature, balance, and peer behavior."
     : "Waiting for telemetry…";
 
+  // An immersive module is the whole window: no top bar, no footer, no page
+  // padding. It carries its own way back to the cards, which is why it is handed
+  // `onExit` — without the top bar there is no other.
+  if (activeModule?.immersive) {
+    return (
+      <div className="fixed inset-0 flex flex-col bg-plane">
+        <Suspense
+          fallback={
+            <div className="flex-1 flex items-center justify-center text-muted">
+              Loading {activeModule.section.label}…
+            </div>
+          }
+        >
+          <activeModule.view onExit={() => setView("home")} />
+        </Suspense>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-full flex flex-col bg-plane">
       <TopBar
@@ -213,7 +232,7 @@ export default function App() {
               </div>
             }
           >
-            <activeModule.view />
+            <activeModule.view onExit={() => setView("home")} />
           </Suspense>
         ) : view === "build" ? (
           <BuildView
