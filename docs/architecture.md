@@ -76,6 +76,14 @@ the end of this doc.
 - **State** lives in `BatteryPack` as NumPy arrays and is stepped in place.
 - **Output** is `PackTelemetry` — the only thing that crosses the boundary.
 
+At construction, the battery state is solved at zero external pack current
+using the same parallel-node equations as a simulation step, without advancing
+charge, polarization or temperature. Each parallel group starts at one terminal
+voltage; only the series module voltages are summed for the pack. Imbalanced
+cells can have nonzero balancing currents even while their module's net current
+is zero. These initial diagnostics are available before a load profile first
+reads the pack voltage.
+
 ### Why NumPy arrays, not `Cell` objects
 
 A rack is hundreds of cells. Holding state as `(series, parallel)` arrays lets
