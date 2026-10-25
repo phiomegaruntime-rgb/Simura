@@ -62,11 +62,12 @@ class BatteryPack:
         self.v_rc = np.zeros(self.shape)
         self.temp_c = np.full(self.shape, config.ambient_temp_c)
 
-        # Last-computed diagnostics (populated by step()).
-        self.cell_current_a = np.zeros(self.shape)
-        self.cell_voltage_v = self.ocv(self.soc).copy()
-        self.module_voltage_v = np.zeros(config.series)
-        self.pack_voltage_v = float(self.cell_voltage_v.sum(axis=1).mean() * config.series)
+        # Start at zero external current using the same parallel-node solve as
+        # step(). Imbalanced cells may already exchange balancing current; a
+        # parallel group has one terminal voltage, not the sum of its cells.
+        self.cell_current_a = self._solve_module_voltages(0.0, self.r0_nom)
+        self.cell_voltage_v = np.broadcast_to(self.module_voltage_v[:, None], self.shape).copy()
+        self.pack_voltage_v = float(self.module_voltage_v.sum())
 
     # -- solver -----------------------------------------------------------
     def _solve_module_voltages(self, pack_current_a: float, r0: np.ndarray) -> np.ndarray:
